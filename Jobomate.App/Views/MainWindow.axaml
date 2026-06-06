@@ -3,7 +3,7 @@
         x:Class="Jobomate.Views.MainWindow"
         Width="1240" Height="840"
         MinWidth="980" MinHeight="660"
-        Background="{DynamicResource JobBgBrush}"
+        Background="{DynamicResource JobBgGradientBrush}"
         Title="Jobomate">
 
     <DockPanel>

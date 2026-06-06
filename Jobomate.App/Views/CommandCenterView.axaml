@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Jobomate.Views.CommandCenterView">
-    <Grid RowDefinitions="*,Auto" Background="{DynamicResource JobBgBrush}">
+    <Grid RowDefinitions="*,Auto" Background="{DynamicResource JobBgGradientBrush}">
         <ScrollViewer Grid.Row="0" x:Name="Scroller" Padding="26,20">
             <StackPanel x:Name="Conversation" Spacing="12" MaxWidth="940" HorizontalAlignment="Stretch" />
         </ScrollViewer>

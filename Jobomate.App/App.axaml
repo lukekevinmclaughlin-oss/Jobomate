@@ -10,45 +10,87 @@
 
     <Application.Resources>
         <ResourceDictionary>
-            <!-- Primitive tokens — matched to the MultiAgentOS "Tahoe" dark scheme -->
-            <Color x:Key="JobBgColor">#000000</Color>
-            <Color x:Key="JobPanelColor">#181818</Color>
-            <Color x:Key="JobPanelRaisedColor">#1C1C1C</Color>
-            <Color x:Key="JobBorderColor">#2A2A2A</Color>
-            <Color x:Key="JobAccentColor">#007AFF</Color>
-            <Color x:Key="JobAccentGreenColor">#1FC95A</Color>
-            <Color x:Key="JobWarnColor">#F2BE1A</Color>
-            <Color x:Key="JobDangerColor">#E11D29</Color>
-            <Color x:Key="JobTextColor">#FAFAFA</Color>
-            <Color x:Key="JobMutedColor">#A1A1AA</Color>
+            <!-- Primitive tokens — refined layered dark with an Apple-blue accent -->
+            <Color x:Key="JobBgColor">#0B0B0E</Color>
+            <Color x:Key="JobBgRaisedColor">#101015</Color>
+            <Color x:Key="JobPanelColor">#15151A</Color>
+            <Color x:Key="JobPanelRaisedColor">#1D1D24</Color>
+            <Color x:Key="JobInputColor">#17171C</Color>
+            <Color x:Key="JobBorderColor">#2A2A33</Color>
+            <Color x:Key="JobBorderSoftColor">#202027</Color>
+            <Color x:Key="JobAccentColor">#0A84FF</Color>
+            <Color x:Key="JobAccentSoftColor">#16243C</Color>
+            <Color x:Key="JobAccentGreenColor">#30D158</Color>
+            <Color x:Key="JobWarnColor">#FFD60A</Color>
+            <Color x:Key="JobDangerColor">#FF453A</Color>
+            <Color x:Key="JobTextColor">#F5F5F7</Color>
+            <Color x:Key="JobMutedColor">#9A9AA3</Color>
 
             <!-- Semantic brushes -->
             <SolidColorBrush x:Key="JobBgBrush" Color="{StaticResource JobBgColor}" />
+            <SolidColorBrush x:Key="JobBgRaisedBrush" Color="{StaticResource JobBgRaisedColor}" />
             <SolidColorBrush x:Key="JobPanelBrush" Color="{StaticResource JobPanelColor}" />
             <SolidColorBrush x:Key="JobPanelRaisedBrush" Color="{StaticResource JobPanelRaisedColor}" />
+            <SolidColorBrush x:Key="JobInputBrush" Color="{StaticResource JobInputColor}" />
             <SolidColorBrush x:Key="JobBorderBrush" Color="{StaticResource JobBorderColor}" />
+            <SolidColorBrush x:Key="JobBorderSoftBrush" Color="{StaticResource JobBorderSoftColor}" />
             <SolidColorBrush x:Key="JobAccentBrush" Color="{StaticResource JobAccentColor}" />
+            <SolidColorBrush x:Key="JobAccentSoftBrush" Color="{StaticResource JobAccentSoftColor}" />
             <SolidColorBrush x:Key="JobAccentGreenBrush" Color="{StaticResource JobAccentGreenColor}" />
             <SolidColorBrush x:Key="JobWarnBrush" Color="{StaticResource JobWarnColor}" />
             <SolidColorBrush x:Key="JobDangerBrush" Color="{StaticResource JobDangerColor}" />
             <SolidColorBrush x:Key="JobTextBrush" Color="{StaticResource JobTextColor}" />
             <SolidColorBrush x:Key="JobMutedBrush" Color="{StaticResource JobMutedColor}" />
 
-            <!-- Force Fluent's accent (incl. built-in accent Buttons) to the Tahoe blue,
-                 overriding the macOS system accent color so buttons aren't orange/graphite. -->
-            <Color x:Key="SystemAccentColor">#007AFF</Color>
-            <Color x:Key="SystemAccentColorDark1">#006FE6</Color>
-            <Color x:Key="SystemAccentColorDark2">#0060C9</Color>
-            <Color x:Key="SystemAccentColorDark3">#0052AB</Color>
-            <Color x:Key="SystemAccentColorLight1">#2E90FF</Color>
-            <Color x:Key="SystemAccentColorLight2">#5AA8FF</Color>
-            <Color x:Key="SystemAccentColorLight3">#85C0FF</Color>
-            <SolidColorBrush x:Key="AccentButtonBackground" Color="#007AFF" />
-            <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#2E90FF" />
-            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#0060C9" />
+            <!-- A subtle top-light gradient for the app background. -->
+            <LinearGradientBrush x:Key="JobBgGradientBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Offset="0" Color="#121218" />
+                <GradientStop Offset="0.5" Color="#0B0B0E" />
+                <GradientStop Offset="1" Color="#08080A" />
+            </LinearGradientBrush>
+
+            <!-- Override Fluent's accent (incl. built-in accent Buttons) to a polished blue
+                 gradient, overriding the macOS system accent so buttons aren't orange/graphite. -->
+            <Color x:Key="SystemAccentColor">#0A84FF</Color>
+            <Color x:Key="SystemAccentColorDark1">#0A78E6</Color>
+            <Color x:Key="SystemAccentColorDark2">#0A66C9</Color>
+            <Color x:Key="SystemAccentColorDark3">#0A55AB</Color>
+            <Color x:Key="SystemAccentColorLight1">#3D9BFF</Color>
+            <Color x:Key="SystemAccentColorLight2">#66B0FF</Color>
+            <Color x:Key="SystemAccentColorLight3">#94C8FF</Color>
+            <LinearGradientBrush x:Key="AccentButtonBackground" StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Offset="0" Color="#3D9BFF" />
+                <GradientStop Offset="1" Color="#0A84FF" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="AccentButtonBackgroundPointerOver" StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Offset="0" Color="#57AAFF" />
+                <GradientStop Offset="1" Color="#1E8FFF" />
+            </LinearGradientBrush>
+            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#0A66C9" />
             <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
             <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF" />
             <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#FFFFFF" />
+
+            <!-- Keep text inputs / combo boxes dark and consistent in every state. -->
+            <SolidColorBrush x:Key="TextControlBackground" Color="{StaticResource JobInputColor}" />
+            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="{StaticResource JobInputColor}" />
+            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="{StaticResource JobInputColor}" />
+            <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="{StaticResource JobBgColor}" />
+            <SolidColorBrush x:Key="TextControlBorderBrush" Color="{StaticResource JobBorderColor}" />
+            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#3A3A46" />
+            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="{StaticResource JobAccentColor}" />
+            <SolidColorBrush x:Key="TextControlForeground" Color="{StaticResource JobTextColor}" />
+            <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="{StaticResource JobTextColor}" />
+            <SolidColorBrush x:Key="TextControlForegroundFocused" Color="{StaticResource JobTextColor}" />
+            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{StaticResource JobMutedColor}" />
+            <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="{StaticResource JobMutedColor}" />
+            <SolidColorBrush x:Key="ComboBoxBackground" Color="{StaticResource JobInputColor}" />
+            <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="{StaticResource JobPanelRaisedColor}" />
+            <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="{StaticResource JobPanelRaisedColor}" />
+            <SolidColorBrush x:Key="ComboBoxBackgroundDisabled" Color="{StaticResource JobBgColor}" />
+            <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="{StaticResource JobPanelRaisedColor}" />
+            <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver" Color="{StaticResource JobAccentSoftColor}" />
+            <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="{StaticResource JobAccentSoftColor}" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

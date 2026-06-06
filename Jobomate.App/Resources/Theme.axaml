@@ -1,14 +1,21 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Base typography -->
+    <!-- ============ Typography ============ -->
     <Style Selector="Window">
         <Setter Property="FontFamily" Value="Inter, SF Pro Text, Segoe UI, Arial" />
         <Setter Property="FontSize" Value="14" />
+        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
+    </Style>
+
+    <Style Selector="TextBlock.title">
+        <Setter Property="FontSize" Value="22" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
     </Style>
 
     <Style Selector="TextBlock.heading">
-        <Setter Property="FontSize" Value="17" />
+        <Setter Property="FontSize" Value="16.5" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
     </Style>
@@ -18,84 +25,195 @@
         <Setter Property="FontSize" Value="12.5" />
     </Style>
 
-    <!-- Card panel -->
+    <Style Selector="TextBlock.caption">
+        <Setter Property="Foreground" Value="{DynamicResource JobMutedBrush}" />
+        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- ============ Cards / panels ============ -->
     <Style Selector="Border.card">
         <Setter Property="Background" Value="{DynamicResource JobPanelBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource JobBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource JobBorderSoftBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="Padding" Value="16" />
+    </Style>
+
+    <Style Selector="Border.section">
+        <Setter Property="Background" Value="{DynamicResource JobBgRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource JobBorderSoftBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="12" />
         <Setter Property="Padding" Value="16" />
     </Style>
 
-    <!-- Logo badge (light surface so the white-background logo reads cleanly on dark UI) -->
+    <!-- Logo badge -->
     <Style Selector="Border.logo-badge">
         <Setter Property="Background" Value="White" />
-        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="CornerRadius" Value="14" />
         <Setter Property="Padding" Value="6" />
     </Style>
 
-    <!-- Accent (primary) button -->
-    <Style Selector="Button.accent">
-        <Setter Property="Background" Value="{DynamicResource JobAccentBrush}" />
-        <Setter Property="Foreground" Value="White" />
+    <!-- ============ Buttons ============ -->
+    <Style Selector="Button">
+        <Setter Property="CornerRadius" Value="9" />
         <Setter Property="Padding" Value="14,8" />
-        <Setter Property="CornerRadius" Value="8" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-    <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
-        <Setter Property="Background" Value="#2E90FF" />
+        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.14" />
+            </Transitions>
+        </Setter>
     </Style>
 
+    <!-- Accent (primary) — gradient comes from AccentButton* resources in App.axaml -->
+    <Style Selector="Button.accent">
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Padding" Value="15,9" />
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- Ghost (secondary) -->
     <Style Selector="Button.ghost">
-        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource JobBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,7" />
+        <Setter Property="Padding" Value="13,8" />
+        <Setter Property="CornerRadius" Value="9" />
+    </Style>
+    <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#26262E" />
+        <Setter Property="BorderBrush" Value="#3A3A46" />
+    </Style>
+    <Style Selector="Button.ghost:pressed /template/ ContentPresenter">
+        <Setter Property="Background" Value="#1A1A20" />
+    </Style>
+
+    <!-- Subtle (tertiary) -->
+    <Style Selector="Button.subtle">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource JobMutedBrush}" />
+        <Setter Property="Padding" Value="10,7" />
         <Setter Property="CornerRadius" Value="8" />
     </Style>
-
-    <!-- Status pills -->
-    <Style Selector="Border.pill">
-        <Setter Property="CornerRadius" Value="999" />
-        <Setter Property="Padding" Value="8,3" />
+    <Style Selector="Button.subtle:pointerover /template/ ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource JobTextBrush}" />
     </Style>
 
-    <!-- Sidebar nav -->
+    <!-- ============ Sidebar nav ============ -->
     <Style Selector="Button.nav">
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
-        <Setter Property="Padding" Value="12,9" />
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Foreground" Value="{DynamicResource JobMutedBrush}" />
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="FontSize" Value="13.5" />
     </Style>
     <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource JobTextBrush}" />
     </Style>
     <Style Selector="Button.nav.active">
-        <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+    <Style Selector="Button.nav.active /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource JobAccentSoftBrush}" />
+    </Style>
 
-    <!-- Conversation bubbles -->
+    <!-- ============ Inputs ============ -->
+    <Style Selector="TextBox">
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Padding" Value="11,8" />
+        <Setter Property="MinHeight" Value="38" />
+        <Setter Property="FontSize" Value="13.5" />
+    </Style>
+    <Style Selector="ComboBox">
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Padding" Value="11,7" />
+        <Setter Property="MinHeight" Value="38" />
+        <Setter Property="FontSize" Value="13.5" />
+    </Style>
+
+    <!-- ============ Checkboxes / radios ============ -->
+    <Style Selector="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
+    </Style>
+    <Style Selector="RadioButton">
+        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
+    </Style>
+
+    <!-- ============ Tabs (segmented) ============ -->
+    <Style Selector="TabItem">
+        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="Foreground" Value="{DynamicResource JobMutedBrush}" />
+        <Setter Property="Padding" Value="14,7" />
+        <Setter Property="Margin" Value="0,0,4,0" />
+        <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="TabItem:selected">
+        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TabItem:pointerover /template/ Border#PART_LayoutRoot">
+        <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+        <Setter Property="CornerRadius" Value="9" />
+    </Style>
+    <Style Selector="TabItem:selected /template/ Border#PART_LayoutRoot">
+        <Setter Property="Background" Value="{DynamicResource JobAccentSoftBrush}" />
+        <Setter Property="CornerRadius" Value="9" />
+    </Style>
+
+    <!-- ============ List items ============ -->
+    <Style Selector="ListBoxItem">
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Margin" Value="0,1" />
+    </Style>
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource JobAccentSoftBrush}" />
+    </Style>
+
+    <!-- ============ Status pills ============ -->
+    <Style Selector="Border.pill">
+        <Setter Property="CornerRadius" Value="999" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource JobBorderSoftBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <!-- ============ Conversation bubbles ============ -->
     <Style Selector="Border.bubble">
         <Setter Property="Background" Value="{DynamicResource JobPanelBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource JobBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource JobBorderSoftBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="12" />
-        <Setter Property="Padding" Value="14,10" />
+        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="Padding" Value="15,11" />
         <Setter Property="HorizontalAlignment" Value="Left" />
-        <Setter Property="MaxWidth" Value="720" />
+        <Setter Property="MaxWidth" Value="740" />
     </Style>
     <Style Selector="Border.bubble-user">
-        <Setter Property="Background" Value="#0E2A4D" />
-        <Setter Property="BorderBrush" Value="{DynamicResource JobAccentBrush}" />
+        <Setter Property="Background" Value="{DynamicResource JobAccentSoftBrush}" />
+        <Setter Property="BorderBrush" Value="#21456F" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="12" />
-        <Setter Property="Padding" Value="14,10" />
+        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="Padding" Value="15,11" />
         <Setter Property="HorizontalAlignment" Value="Right" />
-        <Setter Property="MaxWidth" Value="720" />
+        <Setter Property="MaxWidth" Value="740" />
+    </Style>
+
+    <!-- ============ Scrollbars ============ -->
+    <Style Selector="ScrollBar:vertical">
+        <Setter Property="Width" Value="10" />
     </Style>
 </Styles>
