@@ -11,7 +11,7 @@
             <StackPanel Spacing="10">
                 <WrapPanel x:Name="QuickActions" />
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBox Grid.Column="0" x:Name="InputBox" Watermark="Type a reply, or use the buttons above…" />
+                    <TextBox Grid.Column="0" x:Name="InputBox" Classes="cursor-prompt-input" Watermark="Type a reply, or use the buttons above…" />
                     <Button Grid.Column="1" x:Name="SendButton" Classes="accent" Content="Send" Margin="8,0,0,0" />
                 </Grid>
             </StackPanel>
