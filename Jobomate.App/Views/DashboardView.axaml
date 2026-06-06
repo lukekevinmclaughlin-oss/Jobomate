@@ -268,5 +268,83 @@
                 </ListBox>
             </Grid>
         </TabItem>
+
+        <!-- ============ BROWSER (extension) ============ -->
+        <TabItem Header="Browser">
+            <ScrollViewer Padding="20">
+                <StackPanel Spacing="12" MaxWidth="800" HorizontalAlignment="Left">
+                    <TextBlock Text="Jobomate Chrome extension" Classes="heading" />
+                    <Border Classes="card">
+                        <TextBlock Classes="muted" TextWrapping="Wrap"
+                                   Text="Install the extension to let Jobomate research jobs inside your own logged-in Chrome. On any login or CAPTCHA it pauses and asks you to take over in that tab, then resumes automatically — it never bypasses them." />
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button x:Name="InstallExtButton" Classes="accent" Content="Install Jobomate Chrome Extension" />
+                        <Button x:Name="ResumeExtButton" Classes="ghost" Content="Resume (I've handled it)" />
+                    </StackPanel>
+                    <Border Classes="card">
+                        <StackPanel Spacing="6">
+                            <TextBlock x:Name="ExtStatus" TextWrapping="Wrap" Foreground="{DynamicResource JobTextBrush}" Text="Extension: not connected." />
+                            <TextBlock x:Name="ExtPath" Classes="muted" FontSize="11.5" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="Research these URLs in your browser (one per line)" Classes="muted" />
+                    <TextBox x:Name="ExtUrlsBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="92"
+                             Watermark="https://www.linkedin.com/jobs/view/...&#10;https://www.indeed.com/viewjob?jk=..." />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button x:Name="ExtResearchButton" Classes="accent" Content="Research via extension" />
+                        <Button x:Name="ExtPullButton" Classes="ghost" Content="Pull jobs sent from popup" />
+                        <TextBlock x:Name="ExtResearchStatus" Classes="muted" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Classes="muted" FontSize="11.5" TextWrapping="Wrap"
+                               Text="While browsing a job in Chrome, click the Jobomate extension → “Send this job to Jobomate”. Pulled and researched jobs appear under Search &amp; Results." />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ============ ADVANCED (total control) ============ -->
+        <TabItem Header="Advanced">
+            <ScrollViewer Padding="20">
+                <StackPanel Spacing="10" MaxWidth="840" HorizontalAlignment="Left">
+                    <TextBlock Text="Sending limits" Classes="heading" />
+                    <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                        <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,8"><TextBlock Text="Max per day" Classes="muted" /><TextBox x:Name="MaxPerDayBox" /></StackPanel>
+                        <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,8,8"><TextBlock Text="Min gap (min)" Classes="muted" /><TextBox x:Name="MinGapBox" /></StackPanel>
+                        <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,8"><TextBlock Text="Max consecutive failures" Classes="muted" /><TextBox x:Name="MaxFailBox" /></StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,8"><TextBlock Text="Jitter min (min)" Classes="muted" /><TextBox x:Name="JitterMinBox" /></StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,8,8"><TextBlock Text="Jitter max (min)" Classes="muted" /><TextBox x:Name="JitterMaxBox" /></StackPanel>
+                        <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,8,8"><TextBlock Text="Quiet start (hour)" Classes="muted" /><TextBox x:Name="QuietStartBox" /></StackPanel>
+                        <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,8,8"><TextBlock Text="Quiet end (hour)" Classes="muted" /><TextBox x:Name="QuietEndBox" /></StackPanel>
+                    </Grid>
+                    <Button x:Name="SaveLimitsButton" Classes="accent" Content="Save limits" HorizontalAlignment="Left" />
+
+                    <Border Height="1" Background="{DynamicResource JobBorderBrush}" Margin="0,6" />
+                    <TextBlock Text="Sources" Classes="heading" />
+                    <TextBlock Text="Adzuna app id / app key (free)" Classes="muted" />
+                    <Grid ColumnDefinitions="*,*"><TextBox Grid.Column="0" x:Name="AdzunaIdBox" Margin="0,0,6,0" Watermark="app_id" /><TextBox Grid.Column="1" x:Name="AdzunaKeyBox" PasswordChar="•" Watermark="app_key" /></Grid>
+                    <TextBlock Text="Greenhouse board slugs (comma-separated)" Classes="muted" />
+                    <TextBox x:Name="GreenhouseBox" Watermark="stripe, airbnb" />
+                    <TextBlock Text="Lever board slugs (comma-separated)" Classes="muted" />
+                    <TextBox x:Name="LeverBox" Watermark="netflix, plaid" />
+                    <Button x:Name="SaveSourcesButton" Classes="accent" Content="Save sources" HorizontalAlignment="Left" />
+
+                    <Border Height="1" Background="{DynamicResource JobBorderBrush}" Margin="0,6" />
+                    <TextBlock Text="Data &amp; privacy" Classes="heading" />
+                    <TextBlock x:Name="DataDirLabel" Classes="muted" TextWrapping="Wrap" />
+                    <WrapPanel>
+                        <Button x:Name="OpenDataButton" Classes="ghost" Content="Open data folder" Margin="0,0,8,8" />
+                        <Button x:Name="OpenAuditButton" Classes="ghost" Content="Open audit folder" Margin="0,0,8,8" />
+                    </WrapPanel>
+
+                    <Border Height="1" Background="{DynamicResource JobBorderBrush}" Margin="0,6" />
+                    <TextBlock Text="Danger zone" Classes="heading" Foreground="{DynamicResource JobDangerBrush}" />
+                    <WrapPanel>
+                        <Button x:Name="ResetOnboardingButton" Classes="ghost" Content="Reset onboarding" Margin="0,0,8,8" />
+                        <Button x:Name="ClearDataButton" Classes="ghost" Content="Clear all jobs / drafts / queue" Margin="0,0,8,8" />
+                    </WrapPanel>
+                    <TextBlock x:Name="AdvancedStatus" Classes="muted" TextWrapping="Wrap" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
     </TabControl>
 </UserControl>

@@ -43,7 +43,7 @@
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
-        <Setter Property="Background" Value="#3D78FF" />
+        <Setter Property="Background" Value="#2E90FF" />
     </Style>
 
     <Style Selector="Button.ghost">
@@ -60,5 +60,42 @@
         <Setter Property="CornerRadius" Value="999" />
         <Setter Property="Padding" Value="8,3" />
         <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+    </Style>
+
+    <!-- Sidebar nav -->
+    <Style Selector="Button.nav">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+    </Style>
+    <Style Selector="Button.nav.active">
+        <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- Conversation bubbles -->
+    <Style Selector="Border.bubble">
+        <Setter Property="Background" Value="{DynamicResource JobPanelBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource JobBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="14,10" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="MaxWidth" Value="720" />
+    </Style>
+    <Style Selector="Border.bubble-user">
+        <Setter Property="Background" Value="#0E2A4D" />
+        <Setter Property="BorderBrush" Value="{DynamicResource JobAccentBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="14,10" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+        <Setter Property="MaxWidth" Value="720" />
     </Style>
 </Styles>

@@ -32,7 +32,7 @@ public partial class MainWindow : Window
     public void ShowDashboard()
     {
         _services.MarkOnboarded();
-        var view = new DashboardView();
+        var view = new ShellView();
         view.Bind(_services);
         RootContent.Content = view;
         UpdateStatusPill();

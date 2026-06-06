@@ -30,4 +30,12 @@
     <AvaloniaResource Include="Resources/JobomateLogo.png" />
   </ItemGroup>
 
+  <!-- Bundle the Chrome extension so the in-app installer can write it to disk. -->
+  <ItemGroup>
+    <None Include="Resources/chrome-extension/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>chrome-extension/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+
 </Project>

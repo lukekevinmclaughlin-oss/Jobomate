@@ -32,6 +32,7 @@ public sealed class JobomateServices
     public LlmClient Llm { get; }
     public LocalLlmRuntime LocalRuntime { get; } = new();
     public ProfileService Profiles { get; }
+    public Jobomate.Extension.ExtensionBridge Extension { get; } = new();
     public JobSearchService JobSearch { get; }
     public FilterPipeline Filters { get; } = new();
     public ApprovalService Approval { get; }
@@ -90,7 +91,8 @@ public sealed class JobomateServices
 
         Audit = new JobomateAuditLog(new Repository<AuditEvent>(Db), JobomatePaths.AuditDir);
         Profiles = new ProfileService(ProfileRepo, DocumentRepo);
-        JobSearch = JobSources.CreateDefault(Http, Credentials);
+        try { Extension.Start(); } catch { /* bridge is best-effort */ }
+        JobSearch = JobSources.CreateDefault(Http, Credentials, Extension);
         Approval = new ApprovalService(DraftRepo, Audit);
 
         LlmConfig = _llmConfigRepo.Get("llm") ?? new LlmConnectionConfig();
@@ -102,6 +104,19 @@ public sealed class JobomateServices
     public bool IsOnboarded => _prefRepo.Get("onboarded") is { } p && p.ValueJson == "true";
 
     public void MarkOnboarded() => _prefRepo.Upsert(new UserPreference { Id = "onboarded", ValueJson = "true" });
+
+    public void ResetOnboarding() => _prefRepo.Delete("onboarded");
+
+    public void ClearApplicationData()
+    {
+        foreach (var j in JobRepo.All()) JobRepo.Delete(j.Id);
+        foreach (var c in CompanyRepo.All()) CompanyRepo.Delete(c.Id);
+        foreach (var d in DraftRepo.All()) DraftRepo.Delete(d.Id);
+        foreach (var e in EmailRepo.All()) EmailRepo.Delete(e.Id);
+        foreach (var q in QueueRepo.All()) QueueRepo.Delete(q.Id);
+        foreach (var r in RecordRepo.All()) RecordRepo.Delete(r.Id);
+        Audit.Record("data", "cleared", "jobs/drafts/queue/tracker");
+    }
 
     public void SaveLlmConfig(LlmConnectionConfig cfg)
     {

@@ -21,6 +21,12 @@ public sealed class SearchPreferences
     /// <summary>When true, exclude start-date risks; otherwise they are flagged but kept.</summary>
     public bool ExcludeStartDateRisk { get; set; }
 
+    /// <summary>Greenhouse board slugs to pull (e.g. "stripe", "airbnb").</summary>
+    public List<string> GreenhouseCompanies { get; set; } = new();
+
+    /// <summary>Lever board slugs to pull.</summary>
+    public List<string> LeverCompanies { get; set; } = new();
+
     /// <summary>The common language options offered as a checklist.</summary>
     public static readonly string[] CommonLanguages =
     {

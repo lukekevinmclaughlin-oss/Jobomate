@@ -4,9 +4,11 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Jobomate.Contracts;
 using Jobomate.Drafting;
 using Jobomate.Email;
+using Jobomate.Extension;
 using Jobomate.Filters;
 using Jobomate.Llm;
 using Jobomate.Llm.Local;
@@ -40,7 +42,6 @@ public partial class DashboardView : UserControl
     private SendRunner? _runner;
     private List<JobPosting> _lastJobs = new();
     private List<CompanyTarget> _lastCompanies = new();
-    private string _ggufPath = "";
     private string _sGgufPath = "";
     private DraftRow? _selectedDraft;
 
@@ -53,6 +54,8 @@ public partial class DashboardView : UserControl
         PopulateProfileTab();
         PopulateSearchTab();
         PopulateSettingsTab();
+        PopulateBrowserTab();
+        PopulateAdvancedTab();
         RefreshDrafts();
         RefreshQueue();
         RefreshTracker();
@@ -64,6 +67,8 @@ public partial class DashboardView : UserControl
         WireQueue();
         WireSettings();
         WireAudit();
+        WireBrowser();
+        WireAdvanced();
     }
 
     // =================== PROFILE ===================
@@ -207,6 +212,8 @@ public partial class DashboardView : UserControl
                     Limit = 60,
                 };
                 JobSources.ApplyAdzunaKeys(request, _services.Credentials);
+                request.GreenhouseCompanies = prefs.GreenhouseCompanies;
+                request.LeverCompanies = prefs.LeverCompanies;
 
                 var raw = await _services.JobSearch.SearchAsync(request);
                 if (LlmConfigured()) await ClassifyLanguages(raw.Where(j => j.LanguageRequirements.Count == 0).Take(12).ToList());
@@ -642,6 +649,135 @@ public partial class DashboardView : UserControl
     {
         AuditList.Items.Clear();
         foreach (var e in _services.Audit.Recent(300)) AuditList.Items.Add(new AuditRow { Event = e });
+    }
+
+    // =================== BROWSER (extension) ===================
+
+    private DispatcherTimer? _extTimer;
+
+    private void PopulateBrowserTab()
+    {
+        ExtPath.Text = ExtensionInstaller.IsInstalledOnDisk()
+            ? "Installed at: " + ExtensionInstaller.ExtensionDir
+            : "Not yet written to disk — click Install.";
+        RefreshExtStatus();
+    }
+
+    private void WireBrowser()
+    {
+        InstallExtButton.Click += (_, _) =>
+        {
+            var (ok, message, path) = ExtensionInstaller.Install();
+            ExtPath.Text = "Folder to load in Chrome: " + path;
+            ExtResearchStatus.Text = message;
+            _services.Audit.Record("extension", ok ? "install-initiated" : "install-failed", path, outcome: ok ? "" : message);
+        };
+        ResumeExtButton.Click += async (_, _) => { await _services.Extension.ResumeAsync(); RefreshExtStatus(); };
+        ExtResearchButton.Click += async (_, _) => await ResearchViaExtension();
+        ExtPullButton.Click += (_, _) =>
+        {
+            var jobs = _services.Extension.DrainPushed();
+            _services.JobRepo.UpsertAll(jobs);
+            ExtResearchStatus.Text = $"Pulled {jobs.Count} job(s) from the extension. Open Search & Results.";
+        };
+
+        _extTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        _extTimer.Tick += (_, _) => RefreshExtStatus();
+        AttachedToVisualTree += (_, _) => _extTimer.Start();
+        DetachedFromVisualTree += (_, _) => _extTimer.Stop();
+    }
+
+    private void RefreshExtStatus()
+    {
+        var ext = _services.Extension;
+        ExtStatus.Text = ext.IsConnected
+            ? (ext.NeedsUserReason is { Length: > 0 } reason
+                ? "⏸ Action needed — " + reason + "  (handle it in Chrome, then click Resume)"
+                : "● Connected — Jobomate can research jobs in your browser.")
+            : "○ Not connected. Install the extension (or open Chrome with it enabled).";
+        ResumeExtButton.IsVisible = ext.NeedsUserReason is { Length: > 0 };
+    }
+
+    private async Task ResearchViaExtension()
+    {
+        var urls = (ExtUrlsBox.Text ?? "")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(u => u.StartsWith("http", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (urls.Count == 0) { ExtResearchStatus.Text = "Enter one or more http(s) URLs."; return; }
+        if (!_services.Extension.IsConnected) { ExtResearchStatus.Text = "Extension not connected. Install it first."; return; }
+
+        ExtResearchStatus.Text = $"Researching {urls.Count} URL(s) in your browser… (it'll pause for any login/CAPTCHA)";
+        var jobs = await _services.Extension.CollectAsync(urls);
+        _services.JobRepo.UpsertAll(jobs);
+        ExtResearchStatus.Text = $"Collected {jobs.Count} job(s). Open Search & Results to review.";
+    }
+
+    // =================== ADVANCED (total control) ===================
+
+    private void PopulateAdvancedTab()
+    {
+        var rl = _services.RateLimit;
+        MaxPerDayBox.Text = rl.MaxPerDay.ToString();
+        MinGapBox.Text = ((int)rl.MinGap.TotalMinutes).ToString();
+        MaxFailBox.Text = rl.MaxConsecutiveFailures.ToString();
+        JitterMinBox.Text = ((int)rl.JitterMin.TotalMinutes).ToString();
+        JitterMaxBox.Text = ((int)rl.JitterMax.TotalMinutes).ToString();
+        QuietStartBox.Text = rl.QuietStartHour.ToString();
+        QuietEndBox.Text = rl.QuietEndHour.ToString();
+
+        AdzunaIdBox.Text = _services.Credentials.GetCloudToken("adzuna_app_id") ?? "";
+        AdzunaKeyBox.Text = _services.Credentials.GetCloudToken("adzuna_app_key") ?? "";
+        GreenhouseBox.Text = string.Join(", ", _services.Preferences.GreenhouseCompanies);
+        LeverBox.Text = string.Join(", ", _services.Preferences.LeverCompanies);
+        DataDirLabel.Text = "Data folder: " + Jobomate.Persistence.JobomatePaths.DataDir;
+    }
+
+    private void WireAdvanced()
+    {
+        SaveLimitsButton.Click += (_, _) =>
+        {
+            var rl = _services.RateLimit;
+            if (int.TryParse(MaxPerDayBox.Text, out var mpd)) rl.MaxPerDay = Math.Max(1, mpd);
+            if (int.TryParse(MinGapBox.Text, out var mg)) rl.MinGap = TimeSpan.FromMinutes(Math.Max(1, mg));
+            if (int.TryParse(MaxFailBox.Text, out var mf)) rl.MaxConsecutiveFailures = Math.Max(1, mf);
+            if (int.TryParse(JitterMinBox.Text, out var jmin)) rl.JitterMin = TimeSpan.FromMinutes(Math.Max(0, jmin));
+            if (int.TryParse(JitterMaxBox.Text, out var jmax)) rl.JitterMax = TimeSpan.FromMinutes(Math.Max(0, jmax));
+            if (int.TryParse(QuietStartBox.Text, out var qs)) rl.QuietStartHour = Math.Clamp(qs, 0, 23);
+            if (int.TryParse(QuietEndBox.Text, out var qe)) rl.QuietEndHour = Math.Clamp(qe, 0, 23);
+            AdvancedStatus.Text = "Sending limits updated.";
+        };
+        SaveSourcesButton.Click += (_, _) =>
+        {
+            if (!string.IsNullOrWhiteSpace(AdzunaIdBox.Text)) _services.Credentials.StoreCloudToken("adzuna_app_id", AdzunaIdBox.Text!);
+            if (!string.IsNullOrWhiteSpace(AdzunaKeyBox.Text)) _services.Credentials.StoreCloudToken("adzuna_app_key", AdzunaKeyBox.Text!);
+            var prefs = _services.Preferences;
+            prefs.GreenhouseCompanies = SplitCsv(GreenhouseBox.Text);
+            prefs.LeverCompanies = SplitCsv(LeverBox.Text);
+            _services.SavePreferences(prefs);
+            AdvancedStatus.Text = "Sources saved.";
+        };
+        OpenDataButton.Click += (_, _) => OpenFolder(Jobomate.Persistence.JobomatePaths.DataDir);
+        OpenAuditButton.Click += (_, _) => OpenFolder(Jobomate.Persistence.JobomatePaths.AuditDir);
+        ResetOnboardingButton.Click += (_, _) => { _services.ResetOnboarding(); AdvancedStatus.Text = "Onboarding reset — it will show on next launch."; };
+        ClearDataButton.Click += (_, _) =>
+        {
+            _services.ClearApplicationData();
+            RefreshDrafts(); RefreshQueue(); RefreshTracker();
+            AdvancedStatus.Text = "Cleared all jobs, drafts, queue, and tracker.";
+        };
+    }
+
+    private static List<string> SplitCsv(string? s) =>
+        (s ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private static void OpenFolder(string dir)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(dir);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("open") { ArgumentList = { dir }, UseShellExecute = false });
+        }
+        catch { }
     }
 
     // =================== helpers ===================
