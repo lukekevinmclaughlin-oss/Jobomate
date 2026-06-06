@@ -33,6 +33,22 @@
             <SolidColorBrush x:Key="JobDangerBrush" Color="{StaticResource JobDangerColor}" />
             <SolidColorBrush x:Key="JobTextBrush" Color="{StaticResource JobTextColor}" />
             <SolidColorBrush x:Key="JobMutedBrush" Color="{StaticResource JobMutedColor}" />
+
+            <!-- Force Fluent's accent (incl. built-in accent Buttons) to the Tahoe blue,
+                 overriding the macOS system accent color so buttons aren't orange/graphite. -->
+            <Color x:Key="SystemAccentColor">#007AFF</Color>
+            <Color x:Key="SystemAccentColorDark1">#006FE6</Color>
+            <Color x:Key="SystemAccentColorDark2">#0060C9</Color>
+            <Color x:Key="SystemAccentColorDark3">#0052AB</Color>
+            <Color x:Key="SystemAccentColorLight1">#2E90FF</Color>
+            <Color x:Key="SystemAccentColorLight2">#5AA8FF</Color>
+            <Color x:Key="SystemAccentColorLight3">#85C0FF</Color>
+            <SolidColorBrush x:Key="AccentButtonBackground" Color="#007AFF" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#2E90FF" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#0060C9" />
+            <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#FFFFFF" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

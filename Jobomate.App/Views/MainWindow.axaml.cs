@@ -17,8 +17,9 @@ public partial class MainWindow : Window
 
     private void ShowRoot()
     {
-        if (_services.IsOnboarded) ShowDashboard();
-        else ShowOnboarding();
+        // Go straight to the main command center — onboarding is optional (the profile
+        // falls back to the known background, and CV/LLM/email live in Details & settings).
+        ShowDashboard();
         UpdateStatusPill();
     }
 
