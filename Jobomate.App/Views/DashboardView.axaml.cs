@@ -76,7 +76,7 @@ public partial class DashboardView : UserControl
         PFacts.Text =
             $"Experience: {p.YearsExperience}+ years  ·  Industries: {string.Join(", ", p.Industries)}\n" +
             $"Languages: {string.Join(", ", p.Languages.Select(l => $"{l.Language} ({l.Level})"))}\n" +
-            $"Available from: {JobomateConstants.AvailabilityText}  ·  Education: {string.Join("; ", p.Education)}";
+            $"Availability: {p.AvailabilityText}  ·  Education: {string.Join("; ", p.Education)}";
     }
 
     private void WireProfile()

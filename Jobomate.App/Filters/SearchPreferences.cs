@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Jobomate.Contracts;
 
@@ -20,6 +21,9 @@ public sealed class SearchPreferences
 
     /// <summary>When true, exclude start-date risks; otherwise they are flagged but kept.</summary>
     public bool ExcludeStartDateRisk { get; set; }
+
+    /// <summary>Optional candidate availability date. Null = available anytime (default — no start-date risk).</summary>
+    public DateOnly? AvailableFrom { get; set; }
 
     /// <summary>Greenhouse board slugs to pull (e.g. "stripe", "airbnb").</summary>
     public List<string> GreenhouseCompanies { get; set; } = new();

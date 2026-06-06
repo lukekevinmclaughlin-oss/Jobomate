@@ -24,15 +24,16 @@ public class DraftingTests
         string.Join("\n", prompts.SelectMany(p => p).Select(m => m.Content));
 
     [Fact]
-    public void Prompts_AlwaysStateAvailability_FromOct2026()
+    public void Prompts_StateAvailability_Flexibly()
     {
         var profile = CandidateProfileDefaults.Known();
         var job = CleanJob();
 
-        Assert.Contains(JobomateConstants.AvailabilityText,
-            AllPromptText(DraftPromptBuilder.EmailPrompt(profile, job)));
-        Assert.Contains(JobomateConstants.AvailabilityText,
-            AllPromptText(DraftPromptBuilder.CoverLetterPrompt(profile, job)));
+        var email = AllPromptText(DraftPromptBuilder.EmailPrompt(profile, job)).ToLowerInvariant();
+        var cover = AllPromptText(DraftPromptBuilder.CoverLetterPrompt(profile, job)).ToLowerInvariant();
+        Assert.Contains("availability", email);
+        Assert.Contains("immediately", email); // default = available anytime
+        Assert.Contains("availability", cover);
     }
 
     [Fact]
@@ -68,13 +69,6 @@ public class DraftingTests
     {
         Assert.Equal("I have intermediate German and native English.",
             GuardrailValidator.EnforceGermanLevel("I have fluent German and native English."));
-    }
-
-    [Fact]
-    public void Guardrail_EnsuresAvailabilityIsStated()
-    {
-        var body = GuardrailValidator.EnsureAvailability("I would love to join your team.");
-        Assert.Contains(JobomateConstants.AvailabilityText, body);
     }
 
     [Fact]

@@ -79,14 +79,14 @@ public sealed class DraftGenerator
     private static string OfflineBody(CandidateProfile p, string roleRef) =>
         $"Dear hiring team,\n\nI'm writing to apply for {roleRef}. I bring {p.YearsExperience}+ years in " +
         $"{string.Join(", ", p.Industries)}, with strengths in {string.Join(", ", p.Skills.Take(5))}. " +
-        $"I would welcome the chance to contribute. I am available to start from {JobomateConstants.AvailabilityText}, " +
+        $"I would welcome the chance to contribute. I am available to start {p.AvailabilityText}, " +
         $"and my CV is attached.\n\nKind regards,\n{p.FullName}";
 
     private static string OfflineCover(CandidateProfile p, string company, string title) =>
         $"Dear {company} team,\n\nI am writing to apply for the {title} position. {p.Summary}\n\n" +
         $"Across my career I have focused on {string.Join(", ", p.Skills.Take(6))}, working with tools such as " +
         $"{string.Join(", ", p.Tools.Take(6))}. I am confident I can bring measurable value to {company}.\n\n" +
-        $"I am available to start from {JobomateConstants.AvailabilityText} and would welcome the opportunity to discuss " +
+        $"I am available to start {p.AvailabilityText} and would welcome the opportunity to discuss " +
         $"how I can help.\n\nKind regards,\n{p.FullName}";
 
     private static DraftResult Finish(
@@ -97,12 +97,12 @@ public sealed class DraftGenerator
             ToAddress = toEmail,
             ToName = toName,
             Subject = GuardrailValidator.StripForbidden(subject),
-            Body = GuardrailValidator.Clean(body, ensureAvailability: true),
+            Body = GuardrailValidator.Clean(body),
         };
         if (cv is not null && !string.IsNullOrEmpty(cv.StoredPath) && File.Exists(cv.StoredPath))
             email.AttachmentPaths.Add(cv.StoredPath);
 
-        var cleanCover = GuardrailValidator.Clean(cover, ensureAvailability: true);
+        var cleanCover = GuardrailValidator.Clean(cover);
         return new DraftResult(email, cleanCover);
     }
 

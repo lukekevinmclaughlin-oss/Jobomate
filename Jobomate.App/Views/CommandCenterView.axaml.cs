@@ -98,7 +98,7 @@ public partial class CommandCenterView : UserControl
     {
         AddAssistant(
             "Hi — I'm your Jobomate assistant. I work in the background, but you see and approve everything before " +
-            "anything is sent. Available from 1 October 2026 is baked into every application.\n\n" +
+            "anything is sent.\n\n" +
             "Which would you like to do?");
         SetActions(
             ("①  Recent job postings", () => StartMode(SearchMode.RecentJobs)),
@@ -261,7 +261,7 @@ public partial class CommandCenterView : UserControl
     private async Task GenerateDrafts(int count, Func<CandidateProfile, CandidateDocument?, DraftGenerator, Task> generate)
     {
         SetActions();
-        AddAssistant($"Drafting {count} application(s){(LlmConfigured() ? " with your LLM" : "")}… every draft states your 1 October 2026 availability and uses only your CV facts.");
+        AddAssistant($"Drafting {count} application(s){(LlmConfigured() ? " with your LLM" : "")}… every draft uses only your CV facts.");
 
         var profile = _services.Profile;
         var cv = string.IsNullOrEmpty(profile.CvDocumentId) ? null : _services.Profiles.CvDocument(profile.CvDocumentId);

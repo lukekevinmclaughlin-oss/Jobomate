@@ -125,8 +125,13 @@ public sealed class CandidateProfile : IEntity
     public List<CandidateLanguage> Languages { get; set; } = new();
     public List<string> Links { get; set; } = new();
 
-    /// <summary>Hard availability date. Defaults to the app constant; never earlier.</summary>
-    public DateOnly AvailabilityFrom { get; set; } = JobomateConstants.AvailabilityDate;
+    /// <summary>Optional availability date. Null = flexible / available anytime (the default).</summary>
+    public DateOnly? AvailabilityFrom { get; set; }
+
+    /// <summary>Human phrasing for availability used in drafts (flexible by default).</summary>
+    public string AvailabilityText => AvailabilityFrom is { } d
+        ? d.ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture)
+        : JobomateConstants.DefaultAvailabilityText;
 
     public string CvDocumentId { get; set; } = "";
 

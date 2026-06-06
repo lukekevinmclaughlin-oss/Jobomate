@@ -24,7 +24,7 @@ public partial class OnboardingView : UserControl
     {
         ("Load your CV", "Step 1 of 6 — ground every application in real facts."),
         ("Confirm your profile", "Step 2 of 6 — edit anything; it stays truthful."),
-        ("Confirm availability", "Step 3 of 6 — the hard start date."),
+        ("Availability", "Step 3 of 6 — flexible by default."),
         ("Connect an LLM", "Step 4 of 6 — it works quietly in the background."),
         ("Connect your email", "Step 5 of 6 — dry-run by default, nothing sends yet."),
         ("Choose a mode", "Step 6 of 6 — how you'd like to start."),

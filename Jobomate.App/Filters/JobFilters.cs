@@ -45,17 +45,22 @@ public static class WorkLocationFilter
 }
 
 /// <summary>
-/// Detects start-date compatibility against the hard availability date (1 October 2026).
-/// Earlier fixed/ASAP starts become a "Start-date risk".
+/// Detects start-date compatibility. By default the candidate is available anytime, so
+/// nothing is a risk; if an optional <paramref name="availableFrom"/> date is configured,
+/// earlier fixed/ASAP starts become a "Start-date risk".
 /// </summary>
 public static class StartDateEvaluator
 {
     private static readonly string[] AsapTerms =
         { "immediately", "as soon as possible", "asap", "ab sofort", "sofort", "earliest possible", "immediate start", "start now", "zum nächstmöglichen" };
 
-    public static StartDateRisk Evaluate(JobPosting job)
+    public static StartDateRisk Evaluate(JobPosting job, DateOnly? availableFrom = null)
     {
-        var available = JobomateConstants.AvailabilityDate;
+        // No availability constraint → usable anytime, never a risk.
+        if (availableFrom is not { } available)
+            return job.EarliestStart is not null || !string.IsNullOrWhiteSpace(job.StartDateRequirementText)
+                ? StartDateRisk.Compatible
+                : StartDateRisk.Unknown;
 
         if (job.EarliestStart is { } start)
             return start < available ? StartDateRisk.Risk : StartDateRisk.Compatible;
@@ -73,7 +78,7 @@ public static class StartDateEvaluator
 }
 
 /// <summary>
-/// Ranks postings. Start-date compatibility (vs 1 Oct 2026) and a clean language match
+/// Ranks postings. Start-date compatibility and a clean language match
 /// dominate, then LLM fit, extraction confidence, and recency.
 /// </summary>
 public static class JobRanker
@@ -136,7 +141,7 @@ public sealed class FilterPipeline
 
         foreach (var job in deduped)
         {
-            job.StartDateRisk = StartDateEvaluator.Evaluate(job);
+            job.StartDateRisk = StartDateEvaluator.Evaluate(job, prefs.AvailableFrom);
 
             var (decision, reason) = LanguageFilter.Evaluate(job.LanguageRequirements, prefs.AcceptedLanguages, prefs.LanguageMode);
             job.LanguageDecision = decision;

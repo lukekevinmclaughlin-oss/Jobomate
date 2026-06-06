@@ -63,7 +63,7 @@ public sealed class LlmCompanyResearchSource : ICompanyResearchSource
         var prompt =
             $"Propose up to {limit} real companies that would be a strong fit for this candidate for an unsolicited application.\n" +
             $"Candidate: {_profile.Headline}; {_profile.YearsExperience}+ yrs; based in {_profile.Location}; " +
-            $"industries: {string.Join(", ", _profile.Industries)}; available from {JobomateConstants.AvailabilityText}.\n" +
+            $"industries: {string.Join(", ", _profile.Industries)}; available {_profile.AvailabilityText}.\n" +
             $"Target industries: {string.Join(", ", request.Industries.DefaultIfEmpty("biotech, life sciences"))}. " +
             $"Geography: {string.Join(", ", request.Geographies.DefaultIfEmpty("Germany, EU, remote"))}.\n" +
             "Return ONLY a JSON array of objects: [{\"name\":\"\",\"website\":\"\",\"industry\":\"\",\"location\":\"\",\"why\":\"\"}]. " +

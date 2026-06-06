@@ -50,11 +50,11 @@
                 <StackPanel x:Name="Step2" Spacing="14" IsVisible="False">
                     <Border Classes="card">
                         <StackPanel Spacing="8">
-                            <TextBlock Text="Available to start from" Classes="muted" />
-                            <TextBlock Text="1 October 2026" FontSize="30" FontWeight="Bold"
+                            <TextBlock Text="Availability" Classes="muted" />
+                            <TextBlock Text="Flexible — available anytime" FontSize="26" FontWeight="Bold"
                                        Foreground="{DynamicResource JobAccentBrush}" />
                             <TextBlock TextWrapping="Wrap" Classes="muted"
-                                       Text="This hard date is enforced everywhere: ranking prefers compatible jobs, every email states it, cover letters never imply earlier availability, and roles needing an earlier fixed start are flagged as a start-date risk." />
+                                       Text="By default the candidate is available immediately and drafts state availability flexibly. You can set a specific start date later in your profile if you ever need one." />
                         </StackPanel>
                     </Border>
                 </StackPanel>

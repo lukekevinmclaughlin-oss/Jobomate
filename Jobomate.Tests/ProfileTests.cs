@@ -15,7 +15,7 @@ public class ProfileTests
         var profile = ProfileBuilder.FromCvText("");
 
         Assert.True(profile.FromFallback);
-        Assert.Equal(JobomateConstants.AvailabilityDate, profile.AvailabilityFrom);
+        Assert.Null(profile.AvailabilityFrom); // available anytime by default
         Assert.Contains(profile.Languages, l =>
             l.Language.Equals("German", StringComparison.OrdinalIgnoreCase) &&
             l.Level == JobomateConstants.GermanLevel);
@@ -31,15 +31,14 @@ public class ProfileTests
         var profile = ProfileBuilder.FromCvText(text);
 
         Assert.False(profile.FromFallback);
-        Assert.Equal(JobomateConstants.AvailabilityDate, profile.AvailabilityFrom);
+        Assert.Null(profile.AvailabilityFrom); // available anytime by default
     }
 
     [Fact]
-    public void EnforceGuards_NeverClaimsGermanFluency_AndClampsAvailability()
+    public void EnforceGuards_NeverClaimsGermanFluency()
     {
         var profile = new CandidateProfile
         {
-            AvailabilityFrom = new DateOnly(2026, 1, 1), // earlier than the hard date
             Languages =
             {
                 new CandidateLanguage { Language = "German", Level = "fluent" },
@@ -49,7 +48,6 @@ public class ProfileTests
 
         ProfileBuilder.EnforceGuards(profile);
 
-        Assert.Equal(JobomateConstants.AvailabilityDate, profile.AvailabilityFrom);
         var german = profile.Languages.First(l => l.Language == "German");
         Assert.Equal(JobomateConstants.GermanLevel, german.Level);
     }

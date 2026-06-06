@@ -8,11 +8,8 @@ namespace Jobomate.Contracts;
 /// </summary>
 public static class JobomateConstants
 {
-    /// <summary>The candidate can start work only from this date. Hard rule everywhere.</summary>
-    public static readonly DateOnly AvailabilityDate = new(2026, 10, 1);
-
-    /// <summary>Human phrasing used verbatim in emails and cover letters.</summary>
-    public const string AvailabilityText = "1 October 2026";
+    /// <summary>Default availability phrasing when no specific date is set (the app is usable anytime).</summary>
+    public const string DefaultAvailabilityText = "immediately";
 
     /// <summary>The only honest German level (never claim fluency).</summary>
     public const string GermanLevel = "intermediate";

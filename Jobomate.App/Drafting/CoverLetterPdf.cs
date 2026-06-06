@@ -50,7 +50,7 @@ public static class CoverLetterPdf
                         col.Item().Text(para).LineHeight(1.35f);
                 });
 
-                page.Footer().AlignCenter().Text($"Available to start from {JobomateConstants.AvailabilityText}")
+                page.Footer().AlignCenter().Text($"Available to start {profile.AvailabilityText}")
                     .FontSize(9).FontColor(Colors.Grey.Medium);
             });
         }).GeneratePdf(path);

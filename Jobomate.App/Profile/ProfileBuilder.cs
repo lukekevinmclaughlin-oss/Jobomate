@@ -7,8 +7,7 @@ namespace Jobomate.Profile;
 /// <summary>
 /// Pure profile construction + guardrails. Deterministic and unit-tested: the
 /// fallback path (CV parse failed / too little text) and the honesty guards
-/// (never claim German fluency; never imply availability earlier than 1 Oct 2026)
-/// do not depend on an LLM or the filesystem.
+/// (never claim German fluency) do not depend on an LLM or the filesystem.
 /// </summary>
 public static class ProfileBuilder
 {
@@ -39,15 +38,11 @@ public static class ProfileBuilder
     }
 
     /// <summary>
-    /// Enforce the hard honesty rules on any profile (including LLM-enriched ones):
-    /// availability is never earlier than 1 October 2026, and German is never above
-    /// "intermediate".
+    /// Enforce the honesty rules on any profile (including LLM-enriched ones):
+    /// German is never described above "intermediate".
     /// </summary>
     public static CandidateProfile EnforceGuards(CandidateProfile profile)
     {
-        if (profile.AvailabilityFrom < JobomateConstants.AvailabilityDate)
-            profile.AvailabilityFrom = JobomateConstants.AvailabilityDate;
-
         foreach (var lang in profile.Languages)
         {
             if (!lang.Language.Equals("German", StringComparison.OrdinalIgnoreCase)) continue;

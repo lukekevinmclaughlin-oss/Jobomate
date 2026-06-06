@@ -7,7 +7,7 @@ namespace Jobomate.Drafting;
 
 /// <summary>
 /// Builds the LLM prompts for application emails and cover letters. Pure and unit-tested:
-/// every prompt states availability from 1 October 2026, restricts the model to the CV
+/// every prompt states the candidate's availability, restricts the model to the CV
 /// facts, caps German at intermediate, and — by construction — contains none of the
 /// forbidden topics (layoffs, health, private circumstances).
 /// </summary>
@@ -23,7 +23,7 @@ public static class DraftPromptBuilder
             "REQUIREMENTS:\n" +
             "- A clear subject line naming the role and company.\n" +
             "- A short body (about 120–160 words) explaining the fit using only the facts above.\n" +
-            $"- Clearly state availability to start from {JobomateConstants.AvailabilityText}.\n" +
+            $"- State the candidate's availability ({profile.AvailabilityText}).\n" +
             "- Note that the CV is attached.\n" +
             "- Warm, professional, no clichés. " + GermanRule(profile) + "\n\n" +
             "Return ONLY JSON: {\"subject\":\"...\",\"body\":\"...\"}."),
@@ -39,7 +39,7 @@ public static class DraftPromptBuilder
             "REQUIREMENTS:\n" +
             "- 3–4 short paragraphs, specific to the company and role.\n" +
             "- Ground every claim in the facts above; invent nothing.\n" +
-            $"- State availability to start from {JobomateConstants.AvailabilityText}.\n" +
+            $"- State the candidate's availability ({profile.AvailabilityText}).\n" +
             "- Professional and warm. " + GermanRule(profile) + "\n\n" +
             "Return ONLY the cover-letter text (no preamble, no JSON)."),
     };
@@ -55,7 +55,7 @@ public static class DraftPromptBuilder
             "REQUIREMENTS:\n" +
             "- A clear subject line referencing a speculative application and the company.\n" +
             "- A short body (about 120–160 words) on the value the candidate could add, from the facts above.\n" +
-            $"- Clearly state availability to start from {JobomateConstants.AvailabilityText}.\n" +
+            $"- State the candidate's availability ({profile.AvailabilityText}).\n" +
             "- Note that the CV is attached. Warm, professional. " + GermanRule(profile) + "\n\n" +
             "Return ONLY JSON: {\"subject\":\"...\",\"body\":\"...\"}."),
     };
@@ -80,7 +80,7 @@ public static class DraftPromptBuilder
             $"Tools: {string.Join(", ", p.Tools)}\n" +
             $"Education: {string.Join("; ", p.Education)}\n" +
             $"Languages: {languages}\n" +
-            $"Available from: {JobomateConstants.AvailabilityText}";
+            $"Availability: {p.AvailabilityText}";
     }
 
     private static string RoleBlock(JobPosting job) =>

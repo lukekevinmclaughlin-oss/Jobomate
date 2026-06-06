@@ -6,9 +6,9 @@ jobs or suitable companies, drafts tailored application emails + cover letters, 
 account in a controlled, spaced-out way. Nothing leaves your machine without passing the
 **approval wall**.
 
-> Hard candidate rule enforced everywhere: **available to start from 1 October 2026.**
-> Ranking prefers compatible roles, every email states it, cover letters never imply earlier
-> availability, and roles needing an earlier fixed start are flagged as a *start-date risk*.
+> Availability is **flexible by default** — the candidate is treated as available anytime, and
+> drafts state availability accordingly. You can set a specific start date in the profile if you
+> ever want one; only then are earlier-start roles flagged as a *start-date risk*.
 
 ## Quick start
 
@@ -24,7 +24,7 @@ dotnet run --project Jobomate.App   # launch the desktop app
 ```
 
 First launch opens the **onboarding wizard**: load CV → confirm profile → confirm the
-1 Oct 2026 availability → connect an LLM → connect email (dry-run by default) → choose a mode.
+availability (flexible) → connect an LLM → connect email (dry-run by default) → choose a mode.
 After that you land on the dashboard (Candidate · Search & Results · Drafts & Approval ·
 Queue & Tracker · Settings · Audit).
 
@@ -77,7 +77,7 @@ Local GGUF needs a `llama-server` binary present (e.g. `brew install llama.cpp`)
 LLM config validation · local endpoint normalization · GGUF path validation · CV-parse fallback ·
 dedup · strict language filtering (English-only excludes German-required; preferred never excludes;
 unclear handled per setting; evidence required) · remote/hybrid/on-site filtering · ranking respects
-1 Oct 2026 · prompts include the availability and exclude forbidden topics · no send before approval ·
+configurable availability · prompts state availability and exclude forbidden topics · no send before approval ·
 rate-limiter spacing · quiet hours · dry-run records-not-sends · secrets redacted · failed sends
 stop/pause the queue · real PDF cover-letter generation · SQLite round-trip.
 

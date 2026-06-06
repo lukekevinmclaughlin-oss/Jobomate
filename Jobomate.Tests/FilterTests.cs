@@ -84,24 +84,28 @@ public class FilterTests
         Assert.Equal(expectedInclude, include);
     }
 
-    // ----- Start date vs 1 Oct 2026 -----
+    // ----- Start date (configurable availability; anytime by default) -----
 
     [Fact]
-    public void StartDate_EarlierFixedStart_IsRisk()
+    public void StartDate_NoConstraint_IsNeverRisk()
     {
-        var job = new JobPosting { EarliestStart = new System.DateOnly(2026, 7, 1) };
-        Assert.Equal(StartDateRisk.Risk, StartDateEvaluator.Evaluate(job));
-    }
-
-    [Fact]
-    public void StartDate_OnOrAfterAvailability_IsCompatible()
-    {
-        var job = new JobPosting { EarliestStart = new System.DateOnly(2026, 11, 1) };
+        // Default: candidate available anytime → even a long-past start is Compatible, never Risk.
+        var job = new JobPosting { EarliestStart = new System.DateOnly(2020, 1, 1) };
         Assert.Equal(StartDateRisk.Compatible, StartDateEvaluator.Evaluate(job));
     }
 
     [Fact]
-    public void Ranking_RespectsAvailability_CompatibleAboveRisk()
+    public void StartDate_WithConfiguredAvailability_EarlierIsRisk()
+    {
+        var availableFrom = new System.DateOnly(2026, 10, 1);
+        var earlier = new JobPosting { EarliestStart = new System.DateOnly(2026, 7, 1) };
+        var later = new JobPosting { EarliestStart = new System.DateOnly(2026, 11, 1) };
+        Assert.Equal(StartDateRisk.Risk, StartDateEvaluator.Evaluate(earlier, availableFrom));
+        Assert.Equal(StartDateRisk.Compatible, StartDateEvaluator.Evaluate(later, availableFrom));
+    }
+
+    [Fact]
+    public void Ranking_CompatibleAboveRisk()
     {
         var compatible = new JobPosting { Company = "A", Title = "Compatible role", StartDateRisk = StartDateRisk.Compatible, LanguageDecision = LanguageInclusionDecision.Included, Included = true };
         var risky = new JobPosting { Company = "B", Title = "Risky role", StartDateRisk = StartDateRisk.Risk, LanguageDecision = LanguageInclusionDecision.Included, Included = true };

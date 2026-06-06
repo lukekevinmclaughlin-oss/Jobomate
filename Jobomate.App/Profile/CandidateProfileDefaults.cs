@@ -6,7 +6,7 @@ namespace Jobomate.Profile;
 /// The known candidate background. Used both as the seed for a parsed profile and
 /// as the fallback when CV parsing fails or yields too little text. Single source of
 /// truth for the honest facts (10+ yrs, biotech marketing, English native / German
-/// <b>intermediate</b>, available from 1 October 2026).
+/// <b>intermediate</b>; available anytime).
 /// </summary>
 public static class CandidateProfileDefaults
 {
@@ -40,7 +40,6 @@ public static class CandidateProfileDefaults
             new CandidateLanguage { Language = "English", Level = "native" },
             new CandidateLanguage { Language = "German", Level = JobomateConstants.GermanLevel },
         },
-        AvailabilityFrom = JobomateConstants.AvailabilityDate,
         FromFallback = true,
     };
 }

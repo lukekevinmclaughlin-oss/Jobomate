@@ -46,17 +46,6 @@ public static class GuardrailValidator
         return OverstatedGerman.Replace(text!, JobomateConstants.GermanLevel + " German");
     }
 
-    /// <summary>Guarantee the start availability is stated.</summary>
-    public static string EnsureAvailability(string body)
-    {
-        if (body.Contains(JobomateConstants.AvailabilityText, StringComparison.OrdinalIgnoreCase)) return body;
-        return body.TrimEnd() + $"\n\nI am available to start from {JobomateConstants.AvailabilityText}.";
-    }
-
     /// <summary>Apply every guard to a body of generated text.</summary>
-    public static string Clean(string? text, bool ensureAvailability)
-    {
-        var cleaned = EnforceGermanLevel(StripForbidden(text));
-        return ensureAvailability ? EnsureAvailability(cleaned) : cleaned;
-    }
+    public static string Clean(string? text) => EnforceGermanLevel(StripForbidden(text));
 }
