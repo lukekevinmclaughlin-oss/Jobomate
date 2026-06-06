@@ -167,9 +167,41 @@ public sealed class LlmConnectionConfig : IEntity
     public string LocalAIModelName { get; set; } = "";
     public int LocalAIContextSize { get; set; } = 4096;
     public string LocalAIRuntimePath { get; set; } = "";
+    public string LocalAIRuntime { get; set; } = "Auto";
+    public string LocalAIRuntimeStorageDir { get; set; } = "";
+
+    // CLI pipe / Terminal
+    public string CliCommand { get; set; } = "ollama run llama3 \"{prompt}\"";
+    public int CliTimeout { get; set; } = 120;
+    public string TerminalCommand { get; set; } = "";
+    public bool TerminalCaptureOutput { get; set; } = true;
+
+    // OAuth (LLM bearer — Vertex / Azure / HuggingFace / custom)
+    public AppOAuthProviderType OAuthProvider { get; set; } = AppOAuthProviderType.GoogleVertex;
+    public string OAuthClientId { get; set; } = "";
+    public string OAuthClientSecretRef => "llm-oauth-secret:" + OAuthProvider;
+    public string OAuthAuthUrl { get; set; } = "";
+    public string OAuthTokenUrl { get; set; } = "";
+    public string OAuthScope { get; set; } = "";
+
+    /// <summary>Optional system prompt applied to every call.</summary>
+    public string SystemPrompt { get; set; } = "";
 
     /// <summary>The Keychain reference for this provider's API key (never the key itself).</summary>
     public string ApiKeyRef => "llm:" + ApiProvider;
+
+    /// <summary>Keychain reference for the LLM OAuth refresh token.</summary>
+    public string OAuthRefreshRef => "llm-oauth:" + OAuthProvider;
+
+    public string ResolvedModel() => ConnectionType switch
+    {
+        AppConnectionType.ApiKey or AppConnectionType.OAuth =>
+            string.IsNullOrWhiteSpace(Model) ? Providers.Info(ApiProvider).Model : Model,
+        AppConnectionType.LocalServer => string.IsNullOrWhiteSpace(LocalModelName) ? "local-model" : LocalModelName,
+        AppConnectionType.LocalAI => string.IsNullOrWhiteSpace(LocalAIModelName)
+            ? System.IO.Path.GetFileNameWithoutExtension(LocalAIModelPath) : LocalAIModelName,
+        _ => "cli",
+    };
 }
 
 public sealed class EmailAccountConfig : IEntity

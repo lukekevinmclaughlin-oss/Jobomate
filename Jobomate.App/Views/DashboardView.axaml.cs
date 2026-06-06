@@ -20,13 +20,6 @@ namespace Jobomate.Views;
 
 public partial class DashboardView : UserControl
 {
-    private static readonly AppApiProvider[] CloudProviders =
-    {
-        AppApiProvider.OpenAI, AppApiProvider.Anthropic, AppApiProvider.GoogleAI, AppApiProvider.OpenRouter,
-        AppApiProvider.Mistral, AppApiProvider.Groq, AppApiProvider.DeepSeek, AppApiProvider.Together,
-        AppApiProvider.XAI, AppApiProvider.Custom,
-    };
-
     private static readonly string[] Locations = { "Munich", "Bavaria", "Germany", "EU", "Worldwide remote", "Custom" };
 
     private static readonly (string Label, LanguageMatchMode Mode)[] LangModes =
@@ -42,7 +35,6 @@ public partial class DashboardView : UserControl
     private SendRunner? _runner;
     private List<JobPosting> _lastJobs = new();
     private List<CompanyTarget> _lastCompanies = new();
-    private string _sGgufPath = "";
     private DraftRow? _selectedDraft;
 
     public DashboardView() => InitializeComponent();
@@ -486,19 +478,7 @@ public partial class DashboardView : UserControl
 
     private void PopulateSettingsTab()
     {
-        foreach (var p in CloudProviders) SProviderCombo.Items.Add(Contracts.Providers.DisplayName(p));
-        var cfg = _services.LlmConfig;
-        SProviderCombo.SelectedIndex = Math.Max(0, Array.IndexOf(CloudProviders, cfg.ApiProvider));
-        SModelBox.Text = cfg.Model;
-        SLocalUrlBox.Text = cfg.LocalServerUrl;
-        SLocalModelBox.Text = cfg.LocalModelName;
-        SContextBox.Text = cfg.LocalAIContextSize.ToString();
-        _sGgufPath = cfg.LocalAIModelPath;
-        if (!string.IsNullOrEmpty(_sGgufPath)) SGgufLabel.Text = System.IO.Path.GetFileName(_sGgufPath);
-        SLlmCloud.IsChecked = cfg.ConnectionType == AppConnectionType.ApiKey;
-        SLlmLocal.IsChecked = cfg.ConnectionType == AppConnectionType.LocalServer;
-        SLlmGguf.IsChecked = cfg.ConnectionType == AppConnectionType.LocalAI;
-        SyncSettingsLlmPanels();
+        ConnHost.Bind(_services);
 
         var ec = _services.EmailConfig;
         SEmailDry.IsChecked = ec.Provider == EmailProviderKind.DryRun;
@@ -517,81 +497,18 @@ public partial class DashboardView : UserControl
 
     private void WireSettings()
     {
-        SLlmCloud.IsCheckedChanged += (_, _) => SyncSettingsLlmPanels();
-        SLlmLocal.IsCheckedChanged += (_, _) => SyncSettingsLlmPanels();
-        SLlmGguf.IsCheckedChanged += (_, _) => SyncSettingsLlmPanels();
         SEmailDry.IsCheckedChanged += (_, _) => SyncSettingsEmailPanels();
         SEmailSmtp.IsCheckedChanged += (_, _) => SyncSettingsEmailPanels();
         SEmailGmail.IsCheckedChanged += (_, _) => SyncSettingsEmailPanels();
         SEmailMs.IsCheckedChanged += (_, _) => SyncSettingsEmailPanels();
-
-        SDetectButton.Click += async (_, _) =>
-        {
-            SLlmStatus.Text = "Scanning…";
-            var status = await _services.LocalRuntime.DetectAsync();
-            if (status.OllamaReachable) SLocalUrlBox.Text = LocalLlmRuntime.OllamaChat;
-            else if (status.LmStudioReachable) SLocalUrlBox.Text = LocalLlmRuntime.LmStudioChat;
-            if (status.Models.Count > 0) SLocalModelBox.Text = status.Models[0].Id;
-            SLlmStatus.Text = $"Ollama {(status.OllamaReachable ? "up" : "—")} · LM Studio {(status.LmStudioReachable ? "up" : "—")} · models {status.Models.Count}";
-        };
-        SBrowseGgufButton.Click += async (_, _) =>
-        {
-            var top = TopLevel.GetTopLevel(this);
-            if (top is null) return;
-            var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                AllowMultiple = false,
-                FileTypeFilter = new[] { new FilePickerFileType("GGUF") { Patterns = new[] { "*.gguf" } } },
-            });
-            if (files.FirstOrDefault() is { } f) { _sGgufPath = f.Path.LocalPath; SGgufLabel.Text = System.IO.Path.GetFileName(_sGgufPath); }
-        };
-        SSaveLlmButton.Click += async (_, _) => await SaveAndTestLlm();
         SSaveEmailButton.Click += async (_, _) => await SaveAndTestEmail();
         SOAuthSignInButton.Click += async (_, _) => await SettingsOAuthSignIn();
-    }
-
-    private void SyncSettingsLlmPanels()
-    {
-        SCloudPanel.IsVisible = SLlmCloud.IsChecked == true;
-        SLocalPanel.IsVisible = SLlmLocal.IsChecked == true;
-        SGgufPanel.IsVisible = SLlmGguf.IsChecked == true;
     }
 
     private void SyncSettingsEmailPanels()
     {
         SSmtpPanel.IsVisible = SEmailSmtp.IsChecked == true;
         SOAuthPanel.IsVisible = SEmailGmail.IsChecked == true || SEmailMs.IsChecked == true;
-    }
-
-    private async Task SaveAndTestLlm()
-    {
-        var cfg = _services.LlmConfig;
-        if (SLlmCloud.IsChecked == true)
-        {
-            cfg.ConnectionType = AppConnectionType.ApiKey;
-            cfg.ApiProvider = CloudProviders[Math.Max(0, SProviderCombo.SelectedIndex)];
-            cfg.Model = SModelBox.Text ?? "";
-            if (!string.IsNullOrWhiteSpace(SApiKeyBox.Text))
-                _services.Credentials.StoreApiKey(LlmClient.ApiKeyName(cfg.ApiProvider), SApiKeyBox.Text!);
-        }
-        else if (SLlmLocal.IsChecked == true)
-        {
-            cfg.ConnectionType = AppConnectionType.LocalServer;
-            cfg.LocalServerUrl = SLocalUrlBox.Text ?? "";
-            cfg.LocalModelName = SLocalModelBox.Text ?? "";
-        }
-        else
-        {
-            cfg.ConnectionType = AppConnectionType.LocalAI;
-            cfg.LocalAIModelPath = _sGgufPath;
-            cfg.LocalAIModelName = LocalLlmRuntime.SuggestModelName(_sGgufPath);
-            cfg.LocalAIContextSize = int.TryParse(SContextBox.Text, out var c) ? c : 4096;
-        }
-        _services.SaveLlmConfig(cfg);
-
-        SLlmStatus.Text = "Testing…";
-        var result = await _services.Llm.TestConnectionAsync(cfg);
-        SLlmStatus.Text = result.Ok ? $"✓ {result.Message}" : $"✗ {result.Message}";
     }
 
     private async Task SaveAndTestEmail()

@@ -1,0 +1,101 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Jobomate.Views.ConnectionSettingsHost">
+    <StackPanel Spacing="10">
+        <TextBlock Text="LLM connection" Classes="heading" />
+        <TextBlock Classes="muted" TextWrapping="Wrap"
+                   Text="Six connection types, the full provider set, reasoning effort, and a connection test — the same plumbing as MultiAgentOS." />
+
+        <TextBlock Text="Connection type" Classes="muted" />
+        <WrapPanel>
+            <RadioButton x:Name="TypeCloud" GroupName="ctype" Content="Cloud API" Margin="0,0,14,4" IsChecked="True" />
+            <RadioButton x:Name="TypeLocal" GroupName="ctype" Content="Local server" Margin="0,0,14,4" />
+            <RadioButton x:Name="TypeGguf" GroupName="ctype" Content="Local GGUF" Margin="0,0,14,4" />
+            <RadioButton x:Name="TypeCli" GroupName="ctype" Content="CLI pipe" Margin="0,0,14,4" />
+            <RadioButton x:Name="TypeTerminal" GroupName="ctype" Content="Terminal" Margin="0,0,14,4" />
+            <RadioButton x:Name="TypeOAuth" GroupName="ctype" Content="OAuth" Margin="0,0,14,4" />
+        </WrapPanel>
+
+        <!-- Cloud API -->
+        <StackPanel x:Name="CloudPanel" Spacing="8">
+            <TextBlock Text="Provider" Classes="muted" />
+            <ComboBox x:Name="ProviderCombo" HorizontalAlignment="Stretch" MaxDropDownHeight="320" />
+            <TextBlock Text="Model (optional — uses a sensible default)" Classes="muted" />
+            <TextBox x:Name="ModelBox" Watermark="e.g. gpt-4o" />
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                    <TextBlock Text="Reasoning effort" Classes="muted" />
+                    <ComboBox x:Name="EffortCombo" HorizontalAlignment="Stretch" />
+                </StackPanel>
+                <CheckBox Grid.Column="1" x:Name="FastModeBox" Content="Fast mode" VerticalAlignment="Bottom" />
+            </Grid>
+            <TextBlock Text="API key (stored in macOS Keychain; env var used as fallback)" Classes="muted" />
+            <TextBox x:Name="ApiKeyBox" PasswordChar="•" />
+            <TextBlock Text="Custom endpoint (Azure / Custom providers)" Classes="muted" />
+            <TextBox x:Name="CustomEndpointBox" Watermark="https://…/v1/chat/completions" />
+        </StackPanel>
+
+        <!-- Local server -->
+        <StackPanel x:Name="LocalPanel" Spacing="8" IsVisible="False">
+            <Button x:Name="DetectButton" Classes="ghost" Content="Auto-detect (Ollama / LM Studio)" HorizontalAlignment="Left" />
+            <TextBlock Text="Server URL" Classes="muted" />
+            <TextBox x:Name="LocalUrlBox" Text="http://127.0.0.1:11434/v1/chat/completions" />
+            <TextBlock Text="Model" Classes="muted" />
+            <TextBox x:Name="LocalModelBox" Watermark="e.g. llama3.1" />
+        </StackPanel>
+
+        <!-- Local GGUF -->
+        <StackPanel x:Name="GgufPanel" Spacing="8" IsVisible="False">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button x:Name="BrowseGgufButton" Classes="ghost" Content="Choose .gguf…" />
+                <TextBlock x:Name="GgufLabel" Classes="muted" VerticalAlignment="Center" Text="No model selected" />
+            </StackPanel>
+            <TextBlock Text="Context size" Classes="muted" />
+            <TextBox x:Name="ContextBox" Text="4096" Width="120" HorizontalAlignment="Left" />
+            <TextBlock Classes="muted" TextWrapping="Wrap"
+                       Text="Runs the model on a loopback OpenAI-compatible endpoint via llama.cpp. Models are never auto-downloaded." />
+        </StackPanel>
+
+        <!-- CLI pipe -->
+        <StackPanel x:Name="CliPanel" Spacing="8" IsVisible="False">
+            <TextBlock Text="Command template (use {prompt}; omit to pipe via stdin)" Classes="muted" />
+            <TextBox x:Name="CliCommandBox" Text="ollama run llama3 &quot;{prompt}&quot;" />
+            <TextBlock Text="Timeout (seconds)" Classes="muted" />
+            <TextBox x:Name="CliTimeoutBox" Text="120" Width="120" HorizontalAlignment="Left" />
+        </StackPanel>
+
+        <!-- Terminal -->
+        <StackPanel x:Name="TerminalPanel" Spacing="8" IsVisible="False">
+            <TextBlock Text="Terminal command template (use {prompt})" Classes="muted" />
+            <TextBox x:Name="TerminalCommandBox" Watermark="my-llm-cli --prompt {prompt}" />
+            <TextBlock Text="Timeout (seconds)" Classes="muted" />
+            <TextBox x:Name="TerminalTimeoutBox" Text="120" Width="120" HorizontalAlignment="Left" />
+        </StackPanel>
+
+        <!-- OAuth -->
+        <StackPanel x:Name="OAuthPanel" Spacing="8" IsVisible="False">
+            <TextBlock Text="OAuth provider" Classes="muted" />
+            <ComboBox x:Name="OAuthProviderCombo" HorizontalAlignment="Stretch" />
+            <TextBlock Text="Client id" Classes="muted" />
+            <TextBox x:Name="OAuthClientIdBox" />
+            <TextBlock Text="Client secret (Keychain; optional with PKCE)" Classes="muted" />
+            <TextBox x:Name="OAuthSecretBox" PasswordChar="•" />
+            <TextBlock Text="Endpoint URL (OpenAI-compatible)" Classes="muted" />
+            <TextBox x:Name="OAuthEndpointBox" Watermark="https://…/v1/chat/completions" />
+            <TextBlock Text="Model" Classes="muted" />
+            <TextBox x:Name="OAuthModelBox" />
+            <Grid ColumnDefinitions="*,*">
+                <StackPanel Grid.Column="0" Margin="0,0,6,0"><TextBlock Text="Auth URL (blank = default)" Classes="muted" /><TextBox x:Name="OAuthAuthUrlBox" /></StackPanel>
+                <StackPanel Grid.Column="1"><TextBlock Text="Token URL (blank = default)" Classes="muted" /><TextBox x:Name="OAuthTokenUrlBox" /></StackPanel>
+            </Grid>
+            <TextBlock Text="Scope (blank = default)" Classes="muted" />
+            <TextBox x:Name="OAuthScopeBox" />
+            <Button x:Name="OAuthSignInButton" Classes="ghost" Content="Sign in (opens browser)" HorizontalAlignment="Left" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button x:Name="SaveTestButton" Classes="accent" Content="Save &amp; test" />
+            <TextBlock x:Name="StatusText" Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>
