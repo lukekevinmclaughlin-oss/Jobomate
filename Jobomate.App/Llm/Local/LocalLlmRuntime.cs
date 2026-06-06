@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jobomate.Persistence;
 
 namespace Jobomate.Llm.Local;
 
@@ -135,9 +137,52 @@ public sealed class LocalLlmRuntime
         var models = new List<LocalModelOption>();
         if (ollamaUp) models.AddRange(await ListOllamaModelsAsync(ct).ConfigureAwait(false));
         if (lmUp) models.AddRange(await ListOpenAiCompatibleModelsAsync(LmStudioModels, "LM Studio", ct).ConfigureAwait(false));
+        models.AddRange(await ListLmStudioCliModelsAsync(ct).ConfigureAwait(false)); // downloaded-but-unloaded
+        models = models.GroupBy(m => m.Id).Select(g => g.First()).ToList();
 
-        return new LocalRuntimeStatus(ollamaUp, lmUp, models, FindLocalGgufModels());
+        var gguf = FindLocalGgufModels().Concat(ListManagedGgufModels()).Distinct().ToList();
+        return new LocalRuntimeStatus(ollamaUp, lmUp, models, gguf);
     }
+
+    /// <summary>Downloaded LM Studio models via the `lms` CLI (best-effort; empty if lms isn't installed).</summary>
+    public async Task<IReadOnlyList<LocalModelOption>> ListLmStudioCliModelsAsync(CancellationToken ct = default)
+    {
+        var list = new List<LocalModelOption>();
+        try
+        {
+            var psi = new ProcessStartInfo("lms") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            psi.ArgumentList.Add("ls");
+            using var proc = Process.Start(psi);
+            if (proc is null) return list;
+            var output = await proc.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
+            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+            foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var id = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+                // Model identifiers look like "publisher/model"; skip header/summary lines.
+                if (!string.IsNullOrWhiteSpace(id) && id!.Contains('/') && !id.Contains(':'))
+                    list.Add(new LocalModelOption(id, "LM Studio (cli)"));
+            }
+        }
+        catch { /* lms not installed / not on PATH */ }
+        return list;
+    }
+
+    // ----- managed GGUF store -----
+
+    /// <summary>App-managed folder for GGUF models the user has imported.</summary>
+    public static string ManagedModelsDir => JobomatePaths.EnsureDir(Path.Combine(JobomatePaths.DataDir, "models"));
+
+    /// <summary>Copy a .gguf into the managed store and return the stored path.</summary>
+    public static string ImportGgufToStore(string sourcePath)
+    {
+        var dest = Path.Combine(ManagedModelsDir, Path.GetFileName(sourcePath));
+        File.Copy(sourcePath, dest, overwrite: true);
+        return dest;
+    }
+
+    public static IReadOnlyList<string> ListManagedGgufModels() =>
+        Directory.Exists(ManagedModelsDir) ? Directory.GetFiles(ManagedModelsDir, "*.gguf") : Array.Empty<string>();
 
     /// <summary>Bounded filesystem scan of the usual model folders for *.gguf files.</summary>
     public IReadOnlyList<string> FindLocalGgufModels(int max = 64, int budgetMs = 4000)

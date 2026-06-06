@@ -28,8 +28,14 @@ public sealed class JobomateServices
     public ICredentialStore Credentials { get; }
     public JobomateAuditLog Audit { get; }
     public HttpClient Http { get; }
+    public LlmCostLedger CostLedger { get; } = new();
     public LlmGateway Gateway { get; }
     public LlmClient Llm { get; }
+
+    /// <summary>Current high-level assistant step (shown in the sidecar). Set via <see cref="SetStatus"/>.</summary>
+    public string Status { get; private set; } = "";
+    public event System.Action<string>? StatusChanged;
+    public void SetStatus(string status) { Status = status; StatusChanged?.Invoke(status); }
     public LocalLlmRuntime LocalRuntime { get; } = new();
     public ProfileService Profiles { get; }
     public Jobomate.Extension.ExtensionBridge Extension { get; } = new();
@@ -72,7 +78,7 @@ public sealed class JobomateServices
         Db = new JobomateDb();
         Credentials = MakeCredentialStore();
         Http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        Gateway = LlmClient.BuildGateway(Http);
+        Gateway = LlmClient.BuildGateway(Http, CostLedger);
         Llm = new LlmClient(Gateway, Credentials);
 
         ProfileRepo = new Repository<CandidateProfile>(Db);

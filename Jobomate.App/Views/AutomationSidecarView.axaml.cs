@@ -26,12 +26,17 @@ public partial class AutomationSidecarView : UserControl
     {
         _services = services;
         _services.Llm.ActivityChanged += OnLlmActivity;
+        _services.StatusChanged += OnStatusChanged;
+        if (!string.IsNullOrEmpty(_services.Status)) NowText.Text = _services.Status;
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += (_, _) => Refresh();
         AttachedToVisualTree += (_, _) => { _timer.Start(); Refresh(); };
         DetachedFromVisualTree += (_, _) => _timer.Stop();
     }
+
+    private void OnStatusChanged(string status) =>
+        Dispatcher.UIThread.Post(() => NowText.Text = string.IsNullOrEmpty(status) ? "Ready" : status);
 
     private void OnLlmActivity(string detail, bool active)
     {
@@ -54,6 +59,12 @@ public partial class AutomationSidecarView : UserControl
             var approved = drafts.Count(d => d.Status == DraftStatus.Approved);
             var queued = _services.QueueRepo.All().Count(i => i.Status == SendStatus.Pending);
             CountsText.Text = $"{jobs} jobs · {draftCount} drafts · {approved} approved · {queued} queued";
+
+            var (pt, cmp, cost) = _services.CostLedger.Totals();
+            var tokens = (pt ?? 0) + (cmp ?? 0);
+            CostText.Text = tokens > 0
+                ? $"LLM usage: {tokens:N0} tokens{(cost is { } c ? $" · ${c:0.0000}" : "")}"
+                : "";
 
             var ext = _services.Extension;
             ExtText.Text = ext.IsConnected

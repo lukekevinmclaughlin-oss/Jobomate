@@ -128,6 +128,7 @@ public partial class CommandCenterView : UserControl
     private async Task RunSearch()
     {
         SetActions();
+        _services.SetStatus(_mode == SearchMode.RecentJobs ? "Searching jobs…" : "Researching companies…");
         AddAssistant(_mode == SearchMode.RecentJobs
             ? "Searching reputable sources, then ranking and explaining each match…"
             : "Researching suitable employers and looking for official recruiting emails…");
@@ -261,6 +262,7 @@ public partial class CommandCenterView : UserControl
     private async Task GenerateDrafts(int count, Func<CandidateProfile, CandidateDocument?, DraftGenerator, Task> generate)
     {
         SetActions();
+        _services.SetStatus($"Drafting {count} application(s)…");
         AddAssistant($"Drafting {count} application(s){(LlmConfigured() ? " with your LLM" : "")}… every draft uses only your CV facts.");
 
         var profile = _services.Profile;
@@ -269,6 +271,7 @@ public partial class CommandCenterView : UserControl
         try { await generate(profile, cv, generator); }
         catch (Exception ex) { AddAssistant("Draft generation problem: " + ex.Message); }
 
+        _services.SetStatus("Drafts ready for approval");
         AddAssistant("Here are the drafts. Approve the ones you're happy with — nothing sends until you approve, and it stays dry-run until you connect a real email account.");
         RenderDraftCards();
         SetActions(
@@ -331,6 +334,7 @@ public partial class CommandCenterView : UserControl
 
     private async Task SendDue()
     {
+        _services.SetStatus("Sending due items…");
         var runner = _services.BuildSendRunner();
         var sent = await runner.RunDueAsync();
         var dry = _services.BuildEmailSender().IsDryRun;

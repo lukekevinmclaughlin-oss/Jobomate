@@ -3,8 +3,10 @@
              x:Class="Jobomate.Views.AutomationSidecarView">
     <Grid RowDefinitions="Auto,Auto,Auto,*" Background="{DynamicResource JobPanelBrush}">
         <StackPanel Grid.Row="0" Margin="14,12,14,4" Spacing="2">
-            <TextBlock Text="PROCESSING" Classes="muted" FontSize="10" />
-            <TextBlock x:Name="CountsText" Foreground="{DynamicResource JobTextBrush}" FontSize="12.5" TextWrapping="Wrap" Text="—" />
+            <TextBlock Text="NOW" Classes="muted" FontSize="10" />
+            <TextBlock x:Name="NowText" Foreground="{DynamicResource JobTextBrush}" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" Text="Ready" />
+            <TextBlock x:Name="CountsText" Classes="muted" FontSize="11.5" TextWrapping="Wrap" Text="—" Margin="0,4,0,0" />
+            <TextBlock x:Name="CostText" Classes="muted" FontSize="11" Text="" />
         </StackPanel>
 
         <Border Grid.Row="1" Margin="14,4" Padding="10" Background="{DynamicResource JobBgBrush}" CornerRadius="8"

@@ -39,9 +39,10 @@ public sealed class LlmClient
     /// <summary>Raised around every call so the automation sidecar can show LLM activity. (detail, isActive)</summary>
     public event Action<string, bool>? ActivityChanged;
 
-    public static LlmGateway BuildGateway(HttpClient? http = null)
+    public static LlmGateway BuildGateway(HttpClient? http = null, LlmCostLedger? ledger = null)
     {
         http ??= new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        ledger ??= new LlmCostLedger();
         var adapters = new ILlmAdapter[]
         {
             new OpenAiCompatibleAdapter(http),
@@ -49,7 +50,7 @@ public sealed class LlmClient
             new GoogleAiAdapter(http),
             new CliAdapter(RunShellAsync),
         };
-        return new LlmGateway(adapters, new LlmCostLedger(), new LlmCapabilityRegistry());
+        return new LlmGateway(adapters, ledger, new LlmCapabilityRegistry());
     }
 
     public static string ApiKeyName(AppApiProvider provider) => provider.ToString();
