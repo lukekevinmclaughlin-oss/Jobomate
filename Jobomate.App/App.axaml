@@ -1,0 +1,38 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Jobomate.App"
+             RequestedThemeVariant="Dark">
+
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://Jobomate/Resources/Theme.axaml" />
+    </Application.Styles>
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- Primitive tokens -->
+            <Color x:Key="JobBgColor">#0E1116</Color>
+            <Color x:Key="JobPanelColor">#161B22</Color>
+            <Color x:Key="JobPanelRaisedColor">#1C2330</Color>
+            <Color x:Key="JobBorderColor">#2A313C</Color>
+            <Color x:Key="JobAccentColor">#2F6BF6</Color>
+            <Color x:Key="JobAccentGreenColor">#3BA776</Color>
+            <Color x:Key="JobWarnColor">#E0A23B</Color>
+            <Color x:Key="JobDangerColor">#E5534B</Color>
+            <Color x:Key="JobTextColor">#F3F5F7</Color>
+            <Color x:Key="JobMutedColor">#9AA4B2</Color>
+
+            <!-- Semantic brushes -->
+            <SolidColorBrush x:Key="JobBgBrush" Color="{StaticResource JobBgColor}" />
+            <SolidColorBrush x:Key="JobPanelBrush" Color="{StaticResource JobPanelColor}" />
+            <SolidColorBrush x:Key="JobPanelRaisedBrush" Color="{StaticResource JobPanelRaisedColor}" />
+            <SolidColorBrush x:Key="JobBorderBrush" Color="{StaticResource JobBorderColor}" />
+            <SolidColorBrush x:Key="JobAccentBrush" Color="{StaticResource JobAccentColor}" />
+            <SolidColorBrush x:Key="JobAccentGreenBrush" Color="{StaticResource JobAccentGreenColor}" />
+            <SolidColorBrush x:Key="JobWarnBrush" Color="{StaticResource JobWarnColor}" />
+            <SolidColorBrush x:Key="JobDangerBrush" Color="{StaticResource JobDangerColor}" />
+            <SolidColorBrush x:Key="JobTextBrush" Color="{StaticResource JobTextColor}" />
+            <SolidColorBrush x:Key="JobMutedBrush" Color="{StaticResource JobMutedColor}" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

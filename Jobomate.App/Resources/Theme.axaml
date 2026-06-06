@@ -1,0 +1,64 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Base typography -->
+    <Style Selector="Window">
+        <Setter Property="FontFamily" Value="Inter, SF Pro Text, Segoe UI, Arial" />
+        <Setter Property="FontSize" Value="14" />
+    </Style>
+
+    <Style Selector="TextBlock.heading">
+        <Setter Property="FontSize" Value="17" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
+    </Style>
+
+    <Style Selector="TextBlock.muted">
+        <Setter Property="Foreground" Value="{DynamicResource JobMutedBrush}" />
+        <Setter Property="FontSize" Value="12.5" />
+    </Style>
+
+    <!-- Card panel -->
+    <Style Selector="Border.card">
+        <Setter Property="Background" Value="{DynamicResource JobPanelBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource JobBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="16" />
+    </Style>
+
+    <!-- Logo badge (light surface so the white-background logo reads cleanly on dark UI) -->
+    <Style Selector="Border.logo-badge">
+        <Setter Property="Background" Value="White" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="6" />
+    </Style>
+
+    <!-- Accent (primary) button -->
+    <Style Selector="Button.accent">
+        <Setter Property="Background" Value="{DynamicResource JobAccentBrush}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Padding" Value="14,8" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#3D78FF" />
+    </Style>
+
+    <Style Selector="Button.ghost">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource JobTextBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource JobBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="12,7" />
+        <Setter Property="CornerRadius" Value="8" />
+    </Style>
+
+    <!-- Status pills -->
+    <Style Selector="Border.pill">
+        <Setter Property="CornerRadius" Value="999" />
+        <Setter Property="Padding" Value="8,3" />
+        <Setter Property="Background" Value="{DynamicResource JobPanelRaisedBrush}" />
+    </Style>
+</Styles>

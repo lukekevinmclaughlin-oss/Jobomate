@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Jobomate</AssemblyName>
+    <RootNamespace>Jobomate</RootNamespace>
+    <ApplicationIcon>Resources/AppIcon.ico</ApplicationIcon>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.16" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.16" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.16" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.16" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.27" />
+    <PackageReference Include="MailKit" Version="4.17.0" />
+    <PackageReference Include="MimeKit" Version="4.17.0" />
+    <PackageReference Include="QuestPDF" Version="2025.12.4" />
+    <PackageReference Include="AngleSharp" Version="1.4.0" />
+    <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.60.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Resources/JobomateLogo.png" />
+  </ItemGroup>
+
+</Project>

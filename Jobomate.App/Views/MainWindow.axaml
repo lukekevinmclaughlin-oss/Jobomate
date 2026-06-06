@@ -1,0 +1,32 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Jobomate.Views.MainWindow"
+        Width="1240" Height="840"
+        MinWidth="980" MinHeight="660"
+        Background="{DynamicResource JobBgBrush}"
+        Title="Jobomate">
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="{DynamicResource JobPanelBrush}"
+                BorderBrush="{DynamicResource JobBorderBrush}" BorderThickness="0,0,0,1"
+                Padding="18,12">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Border Classes="logo-badge" Width="46" Height="46">
+                        <Image Source="avares://Jobomate/Resources/JobomateLogo.png" Stretch="Uniform" />
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Jobomate" FontSize="18" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource JobTextBrush}" />
+                        <TextBlock Text="Application command center" Classes="muted" />
+                    </StackPanel>
+                </StackPanel>
+                <Border Grid.Column="2" Classes="pill" VerticalAlignment="Center">
+                    <TextBlock x:Name="StatusPill" Text="Dry-run · nothing sends without approval" Classes="muted" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <ContentControl x:Name="RootContent" />
+    </DockPanel>
+</Window>

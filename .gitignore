@@ -1,0 +1,20 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+dist/
+/dist/*.app/
+
+# IDE / OS
+.DS_Store
+.vs/
+.idea/
+*.user
+
+# Playwright browser cache (downloaded on demand, not committed)
+**/.playwright/
+ms-playwright/
+
+# Local app data should never be committed
+AppData/

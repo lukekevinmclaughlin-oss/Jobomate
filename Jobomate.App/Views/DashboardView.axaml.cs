@@ -1,0 +1,660 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Avalonia.Controls;
+using Avalonia.Platform.Storage;
+using Jobomate.Contracts;
+using Jobomate.Drafting;
+using Jobomate.Email;
+using Jobomate.Filters;
+using Jobomate.Llm;
+using Jobomate.Llm.Local;
+using Jobomate.Scheduling;
+using Jobomate.Sources;
+using Jobomate.ViewModels;
+
+namespace Jobomate.Views;
+
+public partial class DashboardView : UserControl
+{
+    private static readonly AppApiProvider[] CloudProviders =
+    {
+        AppApiProvider.OpenAI, AppApiProvider.Anthropic, AppApiProvider.GoogleAI, AppApiProvider.OpenRouter,
+        AppApiProvider.Mistral, AppApiProvider.Groq, AppApiProvider.DeepSeek, AppApiProvider.Together,
+        AppApiProvider.XAI, AppApiProvider.Custom,
+    };
+
+    private static readonly string[] Locations = { "Munich", "Bavaria", "Germany", "EU", "Worldwide remote", "Custom" };
+
+    private static readonly (string Label, LanguageMatchMode Mode)[] LangModes =
+    {
+        ("Strict required-language match", LanguageMatchMode.StrictRequired),
+        ("Include unclear language postings", LanguageMatchMode.IncludeUnclear),
+        ("Include preferred-language mismatches", LanguageMatchMode.IncludePreferredMismatch),
+        ("Show all, but flag mismatches", LanguageMatchMode.ShowAllFlag),
+    };
+
+    private JobomateServices _services = null!;
+    private readonly List<CheckBox> _languageChecks = new();
+    private SendRunner? _runner;
+    private List<JobPosting> _lastJobs = new();
+    private List<CompanyTarget> _lastCompanies = new();
+    private string _ggufPath = "";
+    private string _sGgufPath = "";
+    private DraftRow? _selectedDraft;
+
+    public DashboardView() => InitializeComponent();
+
+    public void Bind(JobomateServices services)
+    {
+        _services = services;
+
+        PopulateProfileTab();
+        PopulateSearchTab();
+        PopulateSettingsTab();
+        RefreshDrafts();
+        RefreshQueue();
+        RefreshTracker();
+        RefreshAudit();
+
+        WireProfile();
+        WireSearch();
+        WireDrafts();
+        WireQueue();
+        WireSettings();
+        WireAudit();
+    }
+
+    // =================== PROFILE ===================
+
+    private void PopulateProfileTab()
+    {
+        var p = _services.Profile;
+        PName.Text = p.FullName;
+        PHeadline.Text = p.Headline;
+        PLocation.Text = p.Location;
+        PEmail.Text = p.Email;
+        PSummary.Text = p.Summary;
+        PFacts.Text =
+            $"Experience: {p.YearsExperience}+ years  ·  Industries: {string.Join(", ", p.Industries)}\n" +
+            $"Languages: {string.Join(", ", p.Languages.Select(l => $"{l.Language} ({l.Level})"))}\n" +
+            $"Available from: {JobomateConstants.AvailabilityText}  ·  Education: {string.Join("; ", p.Education)}";
+    }
+
+    private void WireProfile()
+    {
+        SaveProfileButton.Click += (_, _) =>
+        {
+            var p = _services.Profile;
+            p.FullName = PName.Text ?? p.FullName;
+            p.Headline = PHeadline.Text ?? p.Headline;
+            p.Location = PLocation.Text ?? p.Location;
+            p.Email = PEmail.Text ?? p.Email;
+            p.Summary = PSummary.Text ?? p.Summary;
+            _services.SaveProfile(p);
+            PopulateProfileTab();
+            ProfileStatus.Text = "Saved.";
+        };
+        LoadCvButton.Click += async (_, _) =>
+        {
+            var top = TopLevel.GetTopLevel(this);
+            if (top is null) return;
+            var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                AllowMultiple = false,
+                FileTypeFilter = new[] { new FilePickerFileType("CV") { Patterns = new[] { "*.pdf", "*.txt", "*.md" } } },
+            });
+            var file = files.FirstOrDefault();
+            if (file is null) return;
+            ProfileStatus.Text = "Reading…";
+            var profile = await _services.Profiles.BuildFromCvAsync(file.Path.LocalPath,
+                LlmConfigured() ? _services.Llm : null, LlmConfigured() ? _services.LlmConfig : null);
+            _services.SaveProfile(profile);
+            PopulateProfileTab();
+            ProfileStatus.Text = profile.FromFallback ? "Loaded (used known-background fallback)." : "Loaded and profile rebuilt.";
+        };
+    }
+
+    // =================== SEARCH ===================
+
+    private void PopulateSearchTab()
+    {
+        foreach (var loc in Locations) LocationCombo.Items.Add(loc);
+        LocationCombo.SelectedItem = _services.Preferences.Location is { Length: > 0 } l && Locations.Contains(l) ? l : "Munich";
+
+        foreach (var (label, _) in LangModes) LangModeCombo.Items.Add(label);
+        LangModeCombo.SelectedIndex = Array.FindIndex(LangModes, m => m.Mode == _services.Preferences.LanguageMode);
+        if (LangModeCombo.SelectedIndex < 0) LangModeCombo.SelectedIndex = 0;
+
+        foreach (var lang in SearchPreferences.CommonLanguages)
+        {
+            var cb = new CheckBox
+            {
+                Content = lang,
+                IsChecked = _services.Preferences.AcceptedLanguages.Contains(lang),
+                Margin = new Avalonia.Thickness(0, 0, 12, 2),
+            };
+            _languageChecks.Add(cb);
+            LanguagePanel.Children.Add(cb);
+        }
+
+        var wl = _services.Preferences.WorkLocations;
+        WlRemote.IsChecked = wl.Contains(WorkLocationType.Remote);
+        WlHybrid.IsChecked = wl.Contains(WorkLocationType.Hybrid);
+        WlOnsite.IsChecked = wl.Contains(WorkLocationType.OnSite);
+        IncludeUnclearWork.IsChecked = _services.Preferences.IncludeUnclearWorkLocation;
+        ExcludeStartRisk.IsChecked = _services.Preferences.ExcludeStartDateRisk;
+    }
+
+    private SearchPreferences ReadPreferences()
+    {
+        var prefs = _services.Preferences;
+        prefs.AcceptedLanguages = _languageChecks.Where(c => c.IsChecked == true).Select(c => (string)c.Content!).ToList();
+        if (prefs.AcceptedLanguages.Count == 0) prefs.AcceptedLanguages.Add("English");
+        prefs.LanguageMode = LangModes[Math.Max(0, LangModeCombo.SelectedIndex)].Mode;
+        prefs.WorkLocations = new List<WorkLocationType>();
+        if (WlRemote.IsChecked == true) prefs.WorkLocations.Add(WorkLocationType.Remote);
+        if (WlHybrid.IsChecked == true) prefs.WorkLocations.Add(WorkLocationType.Hybrid);
+        if (WlOnsite.IsChecked == true) prefs.WorkLocations.Add(WorkLocationType.OnSite);
+        prefs.IncludeUnclearWorkLocation = IncludeUnclearWork.IsChecked == true;
+        prefs.ExcludeStartDateRisk = ExcludeStartRisk.IsChecked == true;
+        var loc = (LocationCombo.SelectedItem as string) ?? "Munich";
+        prefs.Location = loc == "Custom" ? (CustomLocationBox.Text ?? "") : loc;
+        _services.SavePreferences(prefs);
+        return prefs;
+    }
+
+    private void WireSearch()
+    {
+        RunSearchButton.Click += async (_, _) => await RunSearch();
+        GenerateDraftsButton.Click += async (_, _) => await GenerateDrafts();
+    }
+
+    private async Task RunSearch()
+    {
+        var prefs = ReadPreferences();
+        SearchStatus.Text = "Searching…";
+        ResultsList.Items.Clear();
+
+        try
+        {
+            if (ModeUnsolicited.IsChecked == true)
+            {
+                var sources = new List<ICompanyResearchSource> { new MockCompanyResearchSource() };
+                if (LlmConfigured())
+                    sources.Add(new LlmCompanyResearchSource(_services.Llm, _services.LlmConfig, _services.Profile, new CompanyEmailFinder(_services.Http)));
+                var research = new CompanyResearchService(sources);
+                var companies = await research.ResearchAsync(new CompanyResearchRequest
+                {
+                    Industries = _services.Profile.Industries,
+                    Geographies = new List<string> { prefs.Location },
+                    AcceptedLanguages = prefs.AcceptedLanguages,
+                });
+                _lastCompanies = companies.ToList();
+                _services.CompanyRepo.UpsertAll(_lastCompanies);
+                foreach (var c in _lastCompanies) ResultsList.Items.Add(new CompanyRow { Company = c });
+                ResultsHeader.Text = $"Companies ({_lastCompanies.Count})";
+                SearchStatus.Text = $"{_lastCompanies.Count} companies. {_lastCompanies.Count(c => c.ContactStatus == ContactStatus.HasEmail)} with an official email.";
+            }
+            else
+            {
+                var request = new JobSearchRequest
+                {
+                    Keywords = KeywordsBox.Text ?? "",
+                    Location = prefs.Location,
+                    AcceptedLanguages = prefs.AcceptedLanguages,
+                    Limit = 60,
+                };
+                JobSources.ApplyAdzunaKeys(request, _services.Credentials);
+
+                var raw = await _services.JobSearch.SearchAsync(request);
+                if (LlmConfigured()) await ClassifyLanguages(raw.Where(j => j.LanguageRequirements.Count == 0).Take(12).ToList());
+
+                var processed = _services.Filters.Process(raw, prefs);
+                _lastJobs = processed.ToList();
+                _services.JobRepo.UpsertAll(_lastJobs);
+
+                foreach (var j in _lastJobs) ResultsList.Items.Add(new JobRow { Job = j });
+                var included = _lastJobs.Count(j => j.Included);
+                ResultsHeader.Text = $"Jobs ({included} included / {_lastJobs.Count})";
+                SearchStatus.Text = $"{included} included, {_lastJobs.Count - included} filtered. Tip: switch language mode to surface unclear/mismatch postings.";
+            }
+        }
+        catch (Exception ex)
+        {
+            SearchStatus.Text = "Search error: " + ex.Message;
+        }
+    }
+
+    private async Task ClassifyLanguages(List<JobPosting> jobs)
+    {
+        var classifier = _services.BuildLanguageClassifier();
+        foreach (var job in jobs)
+        {
+            try { await classifier.ClassifyAsync(job); } catch { /* leave unclear */ }
+        }
+    }
+
+    private async Task GenerateDrafts()
+    {
+        var profile = _services.Profile;
+        var cv = string.IsNullOrEmpty(profile.CvDocumentId) ? null : _services.Profiles.CvDocument(profile.CvDocumentId);
+        var generator = _services.BuildDraftGenerator();
+        var selected = ResultsList.SelectedItems?.Cast<object>().ToList() ?? new List<object>();
+        if (selected.Count == 0) { GenerateStatus.Text = "Select one or more results first."; return; }
+
+        GenerateStatus.Text = $"Generating {selected.Count} draft(s)…";
+        var made = 0;
+        foreach (var row in selected)
+        {
+            try
+            {
+                DraftResult result;
+                ApplicationDraft draft;
+                if (row is JobRow jr)
+                {
+                    result = LlmConfigured() ? await Try(() => generator.ForJobAsync(profile, jr.Job, cv), () => DraftGenerator.OfflineForJob(profile, jr.Job, cv))
+                                             : DraftGenerator.OfflineForJob(profile, jr.Job, cv);
+                    draft = new ApplicationDraft { Kind = ApplicationKind.JobApplication, JobPostingId = jr.Job.Id, Company = jr.Job.Company, RoleTitle = jr.Job.Title };
+                }
+                else if (row is CompanyRow cr)
+                {
+                    if (cr.Company.ContactStatus != ContactStatus.HasEmail)
+                    {
+                        // No official email — draft prepared but not schedulable (per spec).
+                    }
+                    result = LlmConfigured() ? await Try(() => generator.ForCompanyAsync(profile, cr.Company, cv), () => DraftGenerator.OfflineForCompany(profile, cr.Company, cv))
+                                             : DraftGenerator.OfflineForCompany(profile, cr.Company, cv);
+                    draft = new ApplicationDraft { Kind = ApplicationKind.Unsolicited, CompanyTargetId = cr.Company.Id, Company = cr.Company.Name, RoleTitle = "Speculative application" };
+                }
+                else continue;
+
+                draft.CoverLetterText = result.CoverLetter;
+                _services.DraftRepo.Upsert(draft);
+                var email = result.Email;
+                email.ApplicationDraftId = draft.Id;
+                _services.EmailRepo.Upsert(email);
+                _services.Audit.Record("draft", "generated", $"{draft.Company} — {draft.RoleTitle}");
+                made++;
+            }
+            catch (Exception ex)
+            {
+                _services.Audit.Record("draft", "error", "generation", outcome: ex.Message, severity: AuditSeverity.Warning);
+            }
+        }
+
+        RefreshDrafts();
+        GenerateStatus.Text = $"Created {made} draft(s). Review them on the Drafts & Approval tab.";
+    }
+
+    private static async Task<DraftResult> Try(Func<Task<DraftResult>> llm, Func<DraftResult> offline)
+    {
+        try { return await llm(); }
+        catch { return offline(); }
+    }
+
+    // =================== DRAFTS & APPROVAL ===================
+
+    private void WireDrafts()
+    {
+        DraftsList.SelectionChanged += (_, _) => ShowDraftDetail(DraftsList.SelectedItem as DraftRow);
+        ApproveButton.Click += (_, _) => DraftAction(d => _services.Approval.Approve(d.Id), "Approved.");
+        RejectButton.Click += (_, _) => DraftAction(d => _services.Approval.Reject(d.Id), "Rejected.");
+        PauseButton.Click += (_, _) => DraftAction(d => _services.Approval.Pause(d.Id), "Paused.");
+        SaveEditButton.Click += (_, _) => SaveDraftEdits();
+        RegenerateButton.Click += async (_, _) => await RegenerateDraft();
+        ExportPdfButton.Click += (_, _) => ExportCoverLetterPdf();
+        ApproveAllButton.Click += (_, _) =>
+        {
+            var ids = _services.DraftRepo.All().Where(d => d.Status == DraftStatus.Draft).Select(d => d.Id).ToList();
+            var n = _services.Approval.ApproveBatch(ids);
+            RefreshDrafts();
+            ApprovalStatus.Text = $"Approved {n} draft(s).";
+        };
+        ScheduleApprovedButton.Click += (_, _) =>
+        {
+            var queue = _services.BuildQueueService();
+            var approved = _services.DraftRepo.All().Where(d => d.Status == DraftStatus.Approved).ToList();
+            var scheduled = approved.Count(d => queue.Enqueue(d.Id) is not null);
+            RefreshQueue();
+            RefreshTracker();
+            ApprovalStatus.Text = $"Scheduled {scheduled} of {approved.Count} approved draft(s). Manual-contact items are not scheduled.";
+        };
+    }
+
+    private void RefreshDrafts()
+    {
+        DraftsList.Items.Clear();
+        foreach (var draft in _services.DraftRepo.All())
+        {
+            var email = _services.EmailRepo.All().FirstOrDefault(e => e.ApplicationDraftId == draft.Id);
+            DraftsList.Items.Add(new DraftRow { Draft = draft, Email = email });
+        }
+    }
+
+    private void ShowDraftDetail(DraftRow? row)
+    {
+        _selectedDraft = row;
+        DraftDetail.IsVisible = row is not null;
+        if (row is null) return;
+        DetailHeader.Text = row.Header;
+        DetailTo.Text = row.Email?.ToAddress ?? "";
+        DetailSubject.Text = row.Email?.Subject ?? "";
+        DetailBody.Text = row.Email?.Body ?? "";
+        DetailCover.Text = row.Draft.CoverLetterText;
+        var atts = row.Email?.AttachmentPaths ?? new List<string>();
+        DetailAttachments.Text = atts.Count > 0 ? "Attachments: " + string.Join(", ", atts.Select(System.IO.Path.GetFileName)) : "No attachments.";
+        DetailStatus.Text = $"Status: {row.Draft.Status}";
+    }
+
+    private void DraftAction(Action<ApplicationDraft> action, string message)
+    {
+        if (_selectedDraft is null) return;
+        action(_selectedDraft.Draft);
+        RefreshDrafts();
+        RefreshTracker();
+        DetailStatus.Text = message;
+    }
+
+    private void SaveDraftEdits()
+    {
+        if (_selectedDraft?.Email is not { } email) return;
+        email.ToAddress = DetailTo.Text ?? "";
+        email.Subject = DetailSubject.Text ?? "";
+        email.Body = DetailBody.Text ?? "";
+        _services.EmailRepo.Upsert(email);
+        var draft = _selectedDraft.Draft;
+        draft.CoverLetterText = DetailCover.Text ?? "";
+        _services.DraftRepo.Upsert(draft);
+        _services.Approval.MarkEdited(draft.Id); // resets to Draft → must re-approve
+        RefreshDrafts();
+        DetailStatus.Text = "Saved. Edited drafts must be re-approved before sending.";
+    }
+
+    private async Task RegenerateDraft()
+    {
+        if (_selectedDraft is null) return;
+        var draft = _selectedDraft.Draft;
+        var profile = _services.Profile;
+        var cv = string.IsNullOrEmpty(profile.CvDocumentId) ? null : _services.Profiles.CvDocument(profile.CvDocumentId);
+        var generator = _services.BuildDraftGenerator();
+
+        DetailStatus.Text = "Regenerating…";
+        DraftResult result;
+        if (draft.Kind == ApplicationKind.JobApplication)
+        {
+            var job = _services.JobRepo.Get(draft.JobPostingId) ?? new JobPosting { Company = draft.Company, Title = draft.RoleTitle };
+            result = LlmConfigured() ? await Try(() => generator.ForJobAsync(profile, job, cv), () => DraftGenerator.OfflineForJob(profile, job, cv))
+                                     : DraftGenerator.OfflineForJob(profile, job, cv);
+        }
+        else
+        {
+            var company = _services.CompanyRepo.Get(draft.CompanyTargetId) ?? new CompanyTarget { Name = draft.Company };
+            result = LlmConfigured() ? await Try(() => generator.ForCompanyAsync(profile, company, cv), () => DraftGenerator.OfflineForCompany(profile, company, cv))
+                                     : DraftGenerator.OfflineForCompany(profile, company, cv);
+        }
+
+        draft.CoverLetterText = result.CoverLetter;
+        _services.DraftRepo.Upsert(draft);
+        var email = _services.EmailRepo.All().FirstOrDefault(e => e.ApplicationDraftId == draft.Id) ?? result.Email;
+        email.ApplicationDraftId = draft.Id;
+        email.Subject = result.Email.Subject;
+        email.Body = result.Email.Body;
+        email.ToAddress = string.IsNullOrEmpty(email.ToAddress) ? result.Email.ToAddress : email.ToAddress;
+        email.AttachmentPaths = result.Email.AttachmentPaths;
+        _services.EmailRepo.Upsert(email);
+        _services.Approval.NoteRegenerated(draft.Id);
+        RefreshDrafts();
+        ShowDraftDetail(new DraftRow { Draft = draft, Email = email });
+        DetailStatus.Text = "Regenerated. Re-approval required.";
+    }
+
+    private void ExportCoverLetterPdf()
+    {
+        if (_selectedDraft is null) return;
+        try
+        {
+            var path = CoverLetterPdf.Render(DetailCover.Text ?? _selectedDraft.Draft.CoverLetterText,
+                _services.Profile, _selectedDraft.Draft.Company, _selectedDraft.Draft.RoleTitle,
+                Jobomate.Persistence.JobomatePaths.CoverLettersDir);
+            var draft = _selectedDraft.Draft;
+            draft.CoverLetterPdfPath = path;
+            _services.DraftRepo.Upsert(draft);
+            var email = _selectedDraft.Email;
+            if (email is not null && !email.AttachmentPaths.Contains(path))
+            {
+                email.AttachmentPaths.Add(path);
+                _services.EmailRepo.Upsert(email);
+            }
+            DetailStatus.Text = "Cover letter PDF saved: " + System.IO.Path.GetFileName(path);
+        }
+        catch (Exception ex)
+        {
+            DetailStatus.Text = "PDF error: " + ex.Message;
+        }
+    }
+
+    // =================== QUEUE & TRACKER ===================
+
+    private SendRunner Runner => _runner ??= _services.BuildSendRunner();
+
+    private void WireQueue()
+    {
+        SendDueButton.Click += async (_, _) => await SendDue();
+        PauseQueueButton.Click += (_, _) => { Runner.Pause(); QueueStatus.Text = $"Queue: {Runner.State}"; };
+        ResumeQueueButton.Click += (_, _) => { Runner.Resume(); QueueStatus.Text = $"Queue: {Runner.State}"; };
+        CancelQueueButton.Click += (_, _) => { Runner.Cancel(); QueueStatus.Text = $"Queue: {Runner.State}"; };
+        RefreshTrackerButton.Click += (_, _) => { RefreshTracker(); RefreshQueue(); };
+    }
+
+    private async Task SendDue()
+    {
+        QueueStatus.Text = "Sending due items…";
+        var sent = await Runner.RunDueAsync();
+        RefreshQueue();
+        RefreshTracker();
+        RefreshAudit();
+        QueueStatus.Text = $"Sent {sent}. Queue: {Runner.State}. {(_services.BuildEmailSender().IsDryRun ? "(dry-run — recorded, not sent)" : "")} {Runner.LastMessage}";
+    }
+
+    private void RefreshQueue()
+    {
+        QueueList.Items.Clear();
+        foreach (var item in _services.QueueRepo.All().OrderBy(i => i.ScheduledAt))
+        {
+            var draft = _services.DraftRepo.Get(item.ApplicationDraftId);
+            QueueList.Items.Add(new QueueRow { Item = item, Company = draft?.Company ?? "" });
+        }
+    }
+
+    private void RefreshTracker()
+    {
+        TrackerList.Items.Clear();
+        foreach (var record in _services.RecordRepo.All())
+            TrackerList.Items.Add(new TrackerRow { Record = record });
+    }
+
+    // =================== SETTINGS ===================
+
+    private void PopulateSettingsTab()
+    {
+        foreach (var p in CloudProviders) SProviderCombo.Items.Add(Contracts.Providers.DisplayName(p));
+        var cfg = _services.LlmConfig;
+        SProviderCombo.SelectedIndex = Math.Max(0, Array.IndexOf(CloudProviders, cfg.ApiProvider));
+        SModelBox.Text = cfg.Model;
+        SLocalUrlBox.Text = cfg.LocalServerUrl;
+        SLocalModelBox.Text = cfg.LocalModelName;
+        SContextBox.Text = cfg.LocalAIContextSize.ToString();
+        _sGgufPath = cfg.LocalAIModelPath;
+        if (!string.IsNullOrEmpty(_sGgufPath)) SGgufLabel.Text = System.IO.Path.GetFileName(_sGgufPath);
+        SLlmCloud.IsChecked = cfg.ConnectionType == AppConnectionType.ApiKey;
+        SLlmLocal.IsChecked = cfg.ConnectionType == AppConnectionType.LocalServer;
+        SLlmGguf.IsChecked = cfg.ConnectionType == AppConnectionType.LocalAI;
+        SyncSettingsLlmPanels();
+
+        var ec = _services.EmailConfig;
+        SEmailDry.IsChecked = ec.Provider == EmailProviderKind.DryRun;
+        SEmailSmtp.IsChecked = ec.Provider == EmailProviderKind.Smtp;
+        SEmailGmail.IsChecked = ec.Provider == EmailProviderKind.GmailOAuth;
+        SEmailMs.IsChecked = ec.Provider == EmailProviderKind.MicrosoftGraph;
+        SFromBox.Text = ec.FromAddress;
+        SFromNameBox.Text = ec.FromName;
+        SHostBox.Text = ec.SmtpHost;
+        SPortBox.Text = ec.SmtpPort.ToString();
+        SUserBox.Text = ec.SmtpUsername;
+        SOAuthFromBox.Text = ec.FromAddress;
+        SOAuthClientBox.Text = ec.OAuthClientId;
+        SyncSettingsEmailPanels();
+    }
+
+    private void WireSettings()
+    {
+        SLlmCloud.IsCheckedChanged += (_, _) => SyncSettingsLlmPanels();
+        SLlmLocal.IsCheckedChanged += (_, _) => SyncSettingsLlmPanels();
+        SLlmGguf.IsCheckedChanged += (_, _) => SyncSettingsLlmPanels();
+        SEmailDry.IsCheckedChanged += (_, _) => SyncSettingsEmailPanels();
+        SEmailSmtp.IsCheckedChanged += (_, _) => SyncSettingsEmailPanels();
+        SEmailGmail.IsCheckedChanged += (_, _) => SyncSettingsEmailPanels();
+        SEmailMs.IsCheckedChanged += (_, _) => SyncSettingsEmailPanels();
+
+        SDetectButton.Click += async (_, _) =>
+        {
+            SLlmStatus.Text = "Scanning…";
+            var status = await _services.LocalRuntime.DetectAsync();
+            if (status.OllamaReachable) SLocalUrlBox.Text = LocalLlmRuntime.OllamaChat;
+            else if (status.LmStudioReachable) SLocalUrlBox.Text = LocalLlmRuntime.LmStudioChat;
+            if (status.Models.Count > 0) SLocalModelBox.Text = status.Models[0].Id;
+            SLlmStatus.Text = $"Ollama {(status.OllamaReachable ? "up" : "—")} · LM Studio {(status.LmStudioReachable ? "up" : "—")} · models {status.Models.Count}";
+        };
+        SBrowseGgufButton.Click += async (_, _) =>
+        {
+            var top = TopLevel.GetTopLevel(this);
+            if (top is null) return;
+            var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                AllowMultiple = false,
+                FileTypeFilter = new[] { new FilePickerFileType("GGUF") { Patterns = new[] { "*.gguf" } } },
+            });
+            if (files.FirstOrDefault() is { } f) { _sGgufPath = f.Path.LocalPath; SGgufLabel.Text = System.IO.Path.GetFileName(_sGgufPath); }
+        };
+        SSaveLlmButton.Click += async (_, _) => await SaveAndTestLlm();
+        SSaveEmailButton.Click += async (_, _) => await SaveAndTestEmail();
+        SOAuthSignInButton.Click += async (_, _) => await SettingsOAuthSignIn();
+    }
+
+    private void SyncSettingsLlmPanels()
+    {
+        SCloudPanel.IsVisible = SLlmCloud.IsChecked == true;
+        SLocalPanel.IsVisible = SLlmLocal.IsChecked == true;
+        SGgufPanel.IsVisible = SLlmGguf.IsChecked == true;
+    }
+
+    private void SyncSettingsEmailPanels()
+    {
+        SSmtpPanel.IsVisible = SEmailSmtp.IsChecked == true;
+        SOAuthPanel.IsVisible = SEmailGmail.IsChecked == true || SEmailMs.IsChecked == true;
+    }
+
+    private async Task SaveAndTestLlm()
+    {
+        var cfg = _services.LlmConfig;
+        if (SLlmCloud.IsChecked == true)
+        {
+            cfg.ConnectionType = AppConnectionType.ApiKey;
+            cfg.ApiProvider = CloudProviders[Math.Max(0, SProviderCombo.SelectedIndex)];
+            cfg.Model = SModelBox.Text ?? "";
+            if (!string.IsNullOrWhiteSpace(SApiKeyBox.Text))
+                _services.Credentials.StoreApiKey(LlmClient.ApiKeyName(cfg.ApiProvider), SApiKeyBox.Text!);
+        }
+        else if (SLlmLocal.IsChecked == true)
+        {
+            cfg.ConnectionType = AppConnectionType.LocalServer;
+            cfg.LocalServerUrl = SLocalUrlBox.Text ?? "";
+            cfg.LocalModelName = SLocalModelBox.Text ?? "";
+        }
+        else
+        {
+            cfg.ConnectionType = AppConnectionType.LocalAI;
+            cfg.LocalAIModelPath = _sGgufPath;
+            cfg.LocalAIModelName = LocalLlmRuntime.SuggestModelName(_sGgufPath);
+            cfg.LocalAIContextSize = int.TryParse(SContextBox.Text, out var c) ? c : 4096;
+        }
+        _services.SaveLlmConfig(cfg);
+
+        SLlmStatus.Text = "Testing…";
+        var result = await _services.Llm.TestConnectionAsync(cfg);
+        SLlmStatus.Text = result.Ok ? $"✓ {result.Message}" : $"✗ {result.Message}";
+    }
+
+    private async Task SaveAndTestEmail()
+    {
+        var cfg = _services.EmailConfig;
+        if (SEmailDry.IsChecked == true) { cfg.Provider = EmailProviderKind.DryRun; cfg.Tested = false; _services.SaveEmailConfig(cfg); SEmailStatus.Text = "Dry-run set."; return; }
+        if (SEmailSmtp.IsChecked == true)
+        {
+            cfg.Provider = EmailProviderKind.Smtp;
+            cfg.FromAddress = SFromBox.Text ?? ""; cfg.FromName = SFromNameBox.Text ?? "";
+            cfg.SmtpHost = SHostBox.Text ?? ""; cfg.SmtpPort = int.TryParse(SPortBox.Text, out var p) ? p : 587;
+            cfg.SmtpUsername = SUserBox.Text ?? "";
+            if (!string.IsNullOrWhiteSpace(SPassBox.Text)) _services.Credentials.StoreCloudToken(cfg.SmtpPasswordRef, SPassBox.Text!);
+        }
+        else
+        {
+            cfg.Provider = SEmailGmail.IsChecked == true ? EmailProviderKind.GmailOAuth : EmailProviderKind.MicrosoftGraph;
+            cfg.FromAddress = SOAuthFromBox.Text ?? ""; cfg.OAuthClientId = SOAuthClientBox.Text ?? "";
+        }
+        _services.SaveEmailConfig(cfg);
+
+        SEmailStatus.Text = "Testing…";
+        try
+        {
+            var result = await _services.BuildEmailSenderForTest().TestAsync();
+            if (result.Ok) { cfg.Tested = true; cfg.TestedAt = DateTimeOffset.UtcNow; _services.SaveEmailConfig(cfg); }
+            SEmailStatus.Text = result.Ok ? $"✓ {result.Message}" : $"✗ {result.Message}";
+        }
+        catch (Exception ex) { SEmailStatus.Text = "✗ " + ex.Message; }
+    }
+
+    private async Task SettingsOAuthSignIn()
+    {
+        var cfg = _services.EmailConfig;
+        cfg.Provider = SEmailGmail.IsChecked == true ? EmailProviderKind.GmailOAuth : EmailProviderKind.MicrosoftGraph;
+        cfg.FromAddress = SOAuthFromBox.Text ?? ""; cfg.OAuthClientId = SOAuthClientBox.Text ?? "";
+        _services.SaveEmailConfig(cfg);
+        SEmailStatus.Text = "Opening browser…";
+        try
+        {
+            if (cfg.Provider == EmailProviderKind.GmailOAuth)
+                await _services.GmailTokenManager().SignInAsync(OAuthEndpointsCatalog.GmailScopes);
+            else
+                await _services.MicrosoftTokenManager().SignInAsync(OAuthEndpointsCatalog.GraphScopes);
+            SEmailStatus.Text = "Signed in. Click Save & test.";
+        }
+        catch (Exception ex) { SEmailStatus.Text = "✗ " + ex.Message; }
+    }
+
+    // =================== AUDIT ===================
+
+    private void WireAudit() => RefreshAuditButton.Click += (_, _) => RefreshAudit();
+
+    private void RefreshAudit()
+    {
+        AuditList.Items.Clear();
+        foreach (var e in _services.Audit.Recent(300)) AuditList.Items.Add(new AuditRow { Event = e });
+    }
+
+    // =================== helpers ===================
+
+    private bool LlmConfigured()
+    {
+        var c = _services.LlmConfig;
+        return c.ConnectionType switch
+        {
+            AppConnectionType.ApiKey => !string.IsNullOrEmpty(_services.Credentials.GetApiKey(LlmClient.ApiKeyName(c.ApiProvider))),
+            AppConnectionType.LocalServer => !string.IsNullOrWhiteSpace(c.LocalServerUrl),
+            AppConnectionType.LocalAI => !string.IsNullOrWhiteSpace(c.LocalAIModelPath),
+            _ => false,
+        };
+    }
+}
