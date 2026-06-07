@@ -34,7 +34,16 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
 
     private void Set(string status) { Status = status; Changed?.Invoke(); }
 
-    public string UserDataDir => Path.Combine(JobomatePaths.DataDir, "chrome-profile");
+    public string UserDataDir => Path.Combine(JobomatePaths.DataDir, "llm-browser-profile");
+
+    // Runs before every page's own scripts: hides the JS automation signals that sites like Google
+    // and LinkedIn use to detect (and block) an automated browser, so the user can sign in normally.
+    private const string StealthJs = @"
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        window.chrome = window.chrome || { runtime: {} };
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        try { Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 1 }); } catch (e) {}";
 
     private static bool BrowserInstalled(string name)
     {
@@ -70,37 +79,28 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
             if (Alive) return true;
             _page = null; _ctx = null; // drop any stale/closed session before relaunching
 
+            if (!BrowserInstalled("chromium"))
+            {
+                Set("Setting up the LLM Browser (first run, ~150 MB)…");
+                await Task.Run(() => Microsoft.Playwright.Program.Main(new[] { "install", "chromium" }), ct).ConfigureAwait(false);
+            }
+
             Set("Launching the LLM Browser…");
             _pw ??= await Playwright.CreateAsync().ConfigureAwait(false);
             Directory.CreateDirectory(UserDataDir);
 
-            // Drive the user's REAL Google Chrome (channel="chrome") with the automation signals
-            // stripped, so Google / LinkedIn allow them to sign in normally. Google blocks Playwright's
-            // WebKit and bundled Chromium as "this browser may not be secure"; real Chrome is accepted.
-            // Fall back to bundled Chromium only if Chrome isn't installed.
+            // Jobomate's OWN browser: Playwright's bundled Chromium, headed, with the automation
+            // markers stripped so Google / LinkedIn don't block the user's sign-in ("this browser may
+            // not be secure"). The init script below hides the remaining JS automation signals.
             var opts = new BrowserTypeLaunchPersistentContextOptions
             {
                 Headless = false,
-                Channel = "chrome",
                 Args = new[] { "--disable-blink-features=AutomationControlled", "--no-first-run", "--no-default-browser-check" },
                 IgnoreDefaultArgs = new[] { "--enable-automation" },
                 ViewportSize = new ViewportSize { Width = 1280, Height = 900 },
             };
-            IBrowserContext ctx;
-            try
-            {
-                ctx = await _pw.Chromium.LaunchPersistentContextAsync(UserDataDir, opts).ConfigureAwait(false);
-            }
-            catch
-            {
-                if (!BrowserInstalled("chromium"))
-                {
-                    Set("Downloading the browser (first run)…");
-                    await Task.Run(() => Microsoft.Playwright.Program.Main(new[] { "install", "chromium" }), ct).ConfigureAwait(false);
-                }
-                opts.Channel = null;
-                ctx = await _pw.Chromium.LaunchPersistentContextAsync(UserDataDir, opts).ConfigureAwait(false);
-            }
+            var ctx = await _pw.Chromium.LaunchPersistentContextAsync(UserDataDir, opts).ConfigureAwait(false);
+            try { await ctx.AddInitScriptAsync(StealthJs).ConfigureAwait(false); } catch { }
             // If the user closes the browser window, drop our references so the next action relaunches.
             ctx.Close += (_, __) => { _ctx = null; _page = null; NeedsUserReason = null; Set("Browser closed"); };
             var page = ctx.Pages.Count > 0 ? ctx.Pages[0] : await ctx.NewPageAsync().ConfigureAwait(false);
