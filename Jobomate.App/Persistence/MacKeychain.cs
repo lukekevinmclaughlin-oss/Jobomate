@@ -102,11 +102,27 @@ public static class MacKeychain
         }
     }
 
-    /// <summary>Reads the blob for (service, account), or null if absent.</summary>
+    /// <summary>Reads the blob for (service, account), or null if absent. Guarded by a short timeout:
+    /// if the read would block on a Keychain access prompt (e.g. a headless/differently-signed process
+    /// reading an item whose ACL doesn't trust it), we abandon it and return null rather than freezing
+    /// the caller. A properly-signed app reading its own items never hits this.</summary>
     public static byte[]? Get(string service, string account)
     {
         if (Disabled) return null;
         EnsureMac();
+        byte[]? result = null;
+        using var done = new System.Threading.ManualResetEventSlim(false);
+        var t = new System.Threading.Thread(() =>
+        {
+            try { result = GetCore(service, account); } catch { }
+            finally { done.Set(); }
+        }) { IsBackground = true };
+        t.Start();
+        return done.Wait(TimeSpan.FromSeconds(3)) ? result : null;
+    }
+
+    private static byte[]? GetCore(string service, string account)
+    {
         var n = N.Value;
         IntPtr svc = CFStr(service), acc = CFStr(account);
         IntPtr query = Dict(

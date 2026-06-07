@@ -21,3 +21,9 @@ AppData/
 
 # Bundled LLM Browser (copied at package time / referenced from the LLM_Browser project)
 **/LM_Browser.app/
+
+# Electron app (LM_Browser merged in)
+node_modules/
+dist/
+dist-electron/
+release/

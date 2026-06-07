@@ -1,0 +1,77 @@
+{
+  "name": "lm-browser",
+  "version": "1.0.0",
+  "description": "LM_Browser is a Chrome-like browser designed to be operated by both humans and LLMs",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && tsc -p tsconfig.electron.json",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "set-dev-app-name": "node scripts/set-dev-app-name.cjs",
+    "prestart": "node scripts/set-dev-app-name.cjs",
+    "start": "electron .",
+    "predev:electron": "node scripts/set-dev-app-name.cjs",
+    "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && tsc -p tsconfig.electron.json && electron . --dev-server=http://localhost:5173\"",
+    "package": "npm run build && electron-builder",
+    "package:mac": "npm run build && electron-builder --mac",
+    "lint": "eslint src/ electron/ --ext .ts,.tsx"
+  },
+  "build": {
+    "appId": "com.jobomate.app",
+    "productName": "Jobomate",
+    "directories": {
+      "output": "release"
+    },
+    "protocols": [
+      {
+        "name": "LM_Browser OAuth Callback",
+        "schemes": ["lm-browser"]
+      }
+    ],
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      { "from": "bin/engine", "to": "engine" }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dir"],
+      "identity": null,
+      "icon": "assets/jobomate.icns"
+    },
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "assets/logo.ico"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "assets/logo.png"
+    }
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.3",
+    "lucide-react": "^0.468.0",
+    "uuid": "^11.0.5",
+    "ws": "^8.18.0",
+    "express": "^4.21.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.5.13",
+    "@types/express": "^5.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "wait-on": "^8.0.1"
+  }
+}

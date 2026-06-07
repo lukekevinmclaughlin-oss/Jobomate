@@ -1,0 +1,12 @@
+/* App-level styles that extend the base index.css */
+/* Additional app transitions, animations */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
