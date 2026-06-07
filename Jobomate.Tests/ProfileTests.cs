@@ -16,10 +16,9 @@ public class ProfileTests
 
         Assert.True(profile.FromFallback);
         Assert.Null(profile.AvailabilityFrom); // available anytime by default
-        Assert.Contains(profile.Languages, l =>
-            l.Language.Equals("German", StringComparison.OrdinalIgnoreCase) &&
-            l.Level == JobomateConstants.GermanLevel);
-        Assert.True(profile.YearsExperience >= 10);
+        // Neutral default: no fabricated persona — English present, nothing profession-specific.
+        Assert.Contains(profile.Languages, l => l.Language.Equals("English", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(profile.Industries);
     }
 
     [Fact]

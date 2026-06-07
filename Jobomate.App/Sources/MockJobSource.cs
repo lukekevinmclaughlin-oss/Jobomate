@@ -33,45 +33,60 @@ public sealed class MockJobSource : IJobSource
 
     private static List<JobPosting> Build()
     {
+        // Profession-agnostic sample postings spanning software, data, design, content, sales,
+        // product and finance — with mixed language / start-date / contact-email situations so the
+        // strict filters demonstrate include/exclude regardless of the candidate's field.
         var jobs = new List<JobPosting>
         {
-            Make("BioReach Labs", "Senior Growth Marketing Manager (Remote, EU)", "Remote · EU",
+            Make("Northwind Systems", "Senior Software Engineer (Backend, Remote EU)", "Remote · EU",
                 WorkLocationType.Remote,
-                "Drive AI-assisted growth for a B2B life-science scale-up. Fluent English required. Own SEO, paid, CRM and reporting.",
+                "Design and ship backend services in Go and Python. Fluent English required. Ownership of APIs, reliability and CI/CD.",
                 lang: ("English", LanguageRequirementKind.Required, "Fluent English required."),
-                contactEmail: "careers@bioreachlabs.example"),
+                contactEmail: "careers@northwind.example"),
 
-            Make("MünchenBio GmbH", "Marketing Manager (m/w/d)", "München, Bayern",
-                WorkLocationType.OnSite,
-                "Wir suchen eine:n Marketing Manager:in. Verhandlungssichere Deutschkenntnisse erforderlich. Standort München, vor Ort.",
-                lang: ("German", LanguageRequirementKind.Required, "Verhandlungssichere Deutschkenntnisse erforderlich."),
-                contactEmail: "bewerbung@muenchenbio.example"),
-
-            Make("Helix Therapeutics", "Digital Marketing Lead (Hybrid, Munich)", "Munich, Germany",
-                WorkLocationType.Hybrid,
-                "Business-fluent English is required. German is a plus. Hybrid, two days in office in Munich. Biotech marketing automation and demand gen.",
-                lang: ("English", LanguageRequirementKind.Required, "Business-fluent English is required."),
-                lang2: ("German", LanguageRequirementKind.Preferred, "German is a plus."),
-                contactEmail: "talent@helixtx.example"),
-
-            Make("GenomEU", "Performance Marketing Manager (Remote)", "Remote · Europe",
+            Make("Orbit Sales", "Business Development Representative (Remote, EU)", "Remote · EU",
                 WorkLocationType.Remote,
-                "English required. Start date: as soon as possible. Paid acquisition across DACH life-science accounts.",
+                "Drive outbound pipeline and qualify inbound leads for a B2B SaaS platform. Excellent English required.",
+                lang: ("English", LanguageRequirementKind.Required, "Excellent English required."),
+                contactEmail: "talent@orbitsales.example"),
+
+            Make("Atlas Robotics", "Product Manager (Hybrid, Berlin)", "Berlin, Germany",
+                WorkLocationType.Hybrid,
+                "Own the product roadmap for our automation suite. Business-fluent English required; German is a plus. Two days a week in Berlin.",
+                lang: ("English", LanguageRequirementKind.Required, "Business-fluent English required."),
+                lang2: ("German", LanguageRequirementKind.Preferred, "German is a plus."),
+                contactEmail: "jobs@atlasrobotics.example"),
+
+            Make("Vega Analytics", "Data Analyst (Remote)", "Remote · Europe",
+                WorkLocationType.Remote,
+                "SQL, dbt and dashboarding for a fast-growing analytics company. English required. Start date: as soon as possible.",
                 lang: ("English", LanguageRequirementKind.Required, "English required."),
                 startText: "Start date: as soon as possible.",
                 earliestStart: new DateOnly(2026, 7, 1),
-                portalUrl: "https://genomeu.example/careers/perf-marketing"),
+                portalUrl: "https://vega-analytics.example/careers/data-analyst"),
 
-            Make("CellSignal", "Marketing Operations Specialist (Remote)", "Remote",
+            Make("Pixelforge", "UX/UI Designer (Remote)", "Remote",
                 WorkLocationType.Remote,
-                "Own marketing operations, HubSpot, and reporting for a fast-growing diagnostics company.",
-                portalUrl: "https://cellsignal.example/jobs/marketing-ops"),
+                "Design web and mobile interfaces in Figma; partner with engineering on a design system.",
+                portalUrl: "https://pixelforge.example/jobs/ux-designer"),
 
-            Make("NeuroBytes", "Product Marketing Manager (Biotech)", "Berlin, Germany",
-                WorkLocationType.OnSite,
-                "Excellent English skills required. Position based on-site in Berlin. Life-science product marketing.",
+            Make("Lumen Studios", "Content Creator / Social Media (Remote)", "Remote",
+                WorkLocationType.Remote,
+                "Create short-form video and written content across channels. Excellent English skills required.",
                 lang: ("English", LanguageRequirementKind.Required, "Excellent English skills required."),
-                contactEmail: "jobs@neurobytes.example"),
+                contactEmail: "hello@lumenstudios.example"),
+
+            Make("Cobalt Cloud", "DevOps Engineer (Remote)", "Remote · EU",
+                WorkLocationType.Remote,
+                "Kubernetes, Terraform and CI/CD for a cloud-native platform. English required.",
+                lang: ("English", LanguageRequirementKind.Required, "English required."),
+                contactEmail: "careers@cobaltcloud.example"),
+
+            Make("Meridian Bank GmbH", "Kundenberater:in (m/w/d)", "München, Bayern",
+                WorkLocationType.OnSite,
+                "Wir suchen eine:n Kundenberater:in. Verhandlungssichere Deutschkenntnisse erforderlich. Standort München, vor Ort.",
+                lang: ("German", LanguageRequirementKind.Required, "Verhandlungssichere Deutschkenntnisse erforderlich."),
+                contactEmail: "bewerbung@meridianbank.example"),
         };
 
         return jobs.Select(JobNormalization.Finalize).ToList();

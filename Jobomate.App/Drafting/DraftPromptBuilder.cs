@@ -25,7 +25,7 @@ public static class DraftPromptBuilder
             "- A short body (about 120–160 words) explaining the fit using only the facts above.\n" +
             $"- State the candidate's availability ({profile.AvailabilityText}).\n" +
             "- Note that the CV is attached.\n" +
-            "- Warm, professional, no clichés. " + GermanRule(profile) + "\n\n" +
+            "- Warm, professional, no clichés. " + LanguageRule(profile) + "\n\n" +
             "Return ONLY JSON: {\"subject\":\"...\",\"body\":\"...\"}."),
     };
 
@@ -40,7 +40,7 @@ public static class DraftPromptBuilder
             "- 3–4 short paragraphs, specific to the company and role.\n" +
             "- Ground every claim in the facts above; invent nothing.\n" +
             $"- State the candidate's availability ({profile.AvailabilityText}).\n" +
-            "- Professional and warm. " + GermanRule(profile) + "\n\n" +
+            "- Professional and warm. " + LanguageRule(profile) + "\n\n" +
             "Return ONLY the cover-letter text (no preamble, no JSON)."),
     };
 
@@ -56,15 +56,23 @@ public static class DraftPromptBuilder
             "- A clear subject line referencing a speculative application and the company.\n" +
             "- A short body (about 120–160 words) on the value the candidate could add, from the facts above.\n" +
             $"- State the candidate's availability ({profile.AvailabilityText}).\n" +
-            "- Note that the CV is attached. Warm, professional. " + GermanRule(profile) + "\n\n" +
+            "- Note that the CV is attached. Warm, professional. " + LanguageRule(profile) + "\n\n" +
             "Return ONLY JSON: {\"subject\":\"...\",\"body\":\"...\"}."),
     };
 
-    private static string SystemGuardrails() =>
-        "You write truthful, professional job applications for a real candidate. " +
-        "Use only the professional facts provided. Never invent skills, employers, titles, dates, or achievements. " +
-        "Write strictly about professional qualifications, skills, and motivation for the role. " +
-        "State the candidate's start availability exactly as instructed. Keep every claim modest and accurate.";
+    /// <summary>Optional user persona/guidelines (set from preferences) folded into every draft prompt.</summary>
+    public static string UserGuidelines = "";
+
+    private static string SystemGuardrails()
+    {
+        var s = "You write truthful, professional job applications for a real candidate. " +
+                "Use only the professional facts provided. Never invent skills, employers, titles, dates, or achievements. " +
+                "Write strictly about professional qualifications, skills, and motivation for the role. " +
+                "State the candidate's start availability exactly as instructed. Keep every claim modest and accurate.";
+        if (!string.IsNullOrWhiteSpace(UserGuidelines))
+            s += " The candidate also gave these guidelines — follow them: " + UserGuidelines.Trim();
+        return s;
+    }
 
     private static string ProfileBlock(CandidateProfile p)
     {
@@ -89,12 +97,25 @@ public static class DraftPromptBuilder
         $"Location: {job.Location} ({job.WorkLocation})\n" +
         $"Details: {Truncate(job.RawDescription, 1200)}";
 
-    private static string GermanRule(CandidateProfile p)
+    // Cap every profile language at the level the candidate actually stated — generalised across
+    // any language, not just German. Native/fluent languages need no instruction.
+    private static string LanguageRule(CandidateProfile p)
     {
-        var hasGerman = p.Languages.Any(l => l.Language.Equals("German", System.StringComparison.OrdinalIgnoreCase));
-        return hasGerman
-            ? $"If you reference German, describe it as {JobomateConstants.GermanLevel} only — never higher."
-            : "";
+        var capped = p.Languages
+            .Where(l => !string.IsNullOrWhiteSpace(l.Language) && !IsHighLevel(l.Level))
+            .Select(l => $"{l.Language} as \"{l.Level}\"")
+            .ToList();
+        return capped.Count == 0
+            ? ""
+            : "If you reference these languages, describe them at the stated level only — never higher: " + string.Join("; ", capped) + ".";
+    }
+
+    private static bool IsHighLevel(string? level)
+    {
+        var l = (level ?? "").ToLowerInvariant();
+        return l.Contains("native") || l.Contains("fluent") || l.Contains("bilingual") ||
+               l.Contains("mother") || l.Contains("proficient") || l.Contains("advanced") ||
+               l.Contains("c2") || l.Contains("c1");
     }
 
     private static string Truncate(string s, int max) => string.IsNullOrEmpty(s) || s.Length <= max ? s ?? "" : s[..max];

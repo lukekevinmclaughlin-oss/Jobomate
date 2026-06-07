@@ -103,9 +103,13 @@
                     <Button x:Name="OAuthSignInButton" Classes="ghost" Content="Sign in (opens browser)" HorizontalAlignment="Left" />
                 </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
-                    <Button x:Name="SaveTestButton" Classes="accent" Content="Save &amp; test" />
-                    <TextBlock x:Name="StatusText" Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <StackPanel Spacing="8" Margin="0,4,0,0">
+                    <WrapPanel>
+                        <Button x:Name="SaveTestButton" Classes="accent" Content="Save &amp; test" Margin="0,0,8,4" />
+                        <Button x:Name="ConnectButton" Classes="accent" Content="Connect" Margin="0,0,8,4" />
+                        <Button x:Name="DisconnectButton" Classes="ghost" Content="Disconnect" Margin="0,0,0,4" />
+                    </WrapPanel>
+                    <TextBlock x:Name="StatusText" Classes="muted" TextWrapping="Wrap" />
                 </StackPanel>
             </StackPanel>
         </Border>

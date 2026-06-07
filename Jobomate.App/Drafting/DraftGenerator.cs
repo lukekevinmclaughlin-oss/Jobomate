@@ -97,12 +97,12 @@ public sealed class DraftGenerator
             ToAddress = toEmail,
             ToName = toName,
             Subject = GuardrailValidator.StripForbidden(subject),
-            Body = GuardrailValidator.Clean(body),
+            Body = GuardrailValidator.Clean(body, profile),
         };
         if (cv is not null && !string.IsNullOrEmpty(cv.StoredPath) && File.Exists(cv.StoredPath))
             email.AttachmentPaths.Add(cv.StoredPath);
 
-        var cleanCover = GuardrailValidator.Clean(cover);
+        var cleanCover = GuardrailValidator.Clean(cover, profile);
         return new DraftResult(email, cleanCover);
     }
 

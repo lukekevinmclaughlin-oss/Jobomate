@@ -44,7 +44,7 @@ public sealed class JobSearchService
 public static class JobSources
 {
     public static JobSearchService CreateDefault(
-        HttpClient http, ICredentialStore? credentials = null, Jobomate.Extension.ExtensionBridge? extension = null)
+        HttpClient http, ICredentialStore? credentials = null)
     {
         var sources = new List<IJobSource>
         {
@@ -58,7 +58,6 @@ public static class JobSources
             new CareerPageJobSource(http),
             new UrlImportJobSource(http),
         };
-        if (extension is not null) sources.Add(new ExtensionJobSource(extension));
         return new JobSearchService(sources);
     }
 

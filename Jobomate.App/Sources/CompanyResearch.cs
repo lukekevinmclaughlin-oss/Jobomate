@@ -18,17 +18,17 @@ public sealed class MockCompanyResearchSource : ICompanyResearchSource
     {
         var list = new List<CompanyTarget>
         {
-            new() { Name = "Helix Therapeutics", Website = "https://helixtx.example", Industry = "Biotech",
-                Location = "Munich", RecruitingEmail = "talent@helixtx.example", RecruitingEmailEvidence = "Published on careers page",
+            new() { Name = "Northwind Systems", Website = "https://northwind.example", Industry = "Software",
+                Location = "Remote (EU)", RecruitingEmail = "careers@northwind.example", RecruitingEmailEvidence = "Published on careers page",
                 ContactStatus = ContactStatus.HasEmail, FitScore = 0.82,
-                FitExplanation = "B2B biotech in Munich — strong match for AI-driven growth marketing." },
-            new() { Name = "GenomEU", Website = "https://genomeu.example", Industry = "Life sciences",
-                Location = "EU (remote)", RecruitingEmail = "careers@genomeu.example", RecruitingEmailEvidence = "Published on jobs page",
+                FitExplanation = "Remote-first software company hiring across engineering and product." },
+            new() { Name = "Lumen Studios", Website = "https://lumenstudios.example", Industry = "Media",
+                Location = "Remote", RecruitingEmail = "hello@lumenstudios.example", RecruitingEmailEvidence = "Published on jobs page",
                 ContactStatus = ContactStatus.HasEmail, FitScore = 0.74,
-                FitExplanation = "Remote-first life-science company; demand-gen and SEO focus." },
-            new() { Name = "MünchenBio GmbH", Website = "https://muenchenbio.example", Industry = "Biotech",
-                Location = "Munich", ContactStatus = ContactStatus.NeedsManualContact, FitScore = 0.68,
-                FitExplanation = "Local Munich biotech; no published recruiting email found — needs manual contact.",
+                FitExplanation = "Content & media studio; frequently hires creators, designers and marketers." },
+            new() { Name = "Meridian Bank GmbH", Website = "https://meridianbank.example", Industry = "Finance",
+                Location = "Munich", ContactStatus = ContactStatus.NeedsManualContact, FitScore = 0.66,
+                FitExplanation = "Established firm; no published recruiting email found — needs manual contact.",
                 RiskNotes = "No official application email located." },
         };
         return Task.FromResult<IReadOnlyList<CompanyTarget>>(list.Take(request.Limit <= 0 ? 20 : request.Limit).ToList());
@@ -64,8 +64,8 @@ public sealed class LlmCompanyResearchSource : ICompanyResearchSource
             $"Propose up to {limit} real companies that would be a strong fit for this candidate for an unsolicited application.\n" +
             $"Candidate: {_profile.Headline}; {_profile.YearsExperience}+ yrs; based in {_profile.Location}; " +
             $"industries: {string.Join(", ", _profile.Industries)}; available {_profile.AvailabilityText}.\n" +
-            $"Target industries: {string.Join(", ", request.Industries.DefaultIfEmpty("biotech, life sciences"))}. " +
-            $"Geography: {string.Join(", ", request.Geographies.DefaultIfEmpty("Germany, EU, remote"))}.\n" +
+            $"Target industries: {string.Join(", ", request.Industries.DefaultIfEmpty("the candidate's field (infer from their profile)"))}. " +
+            $"Geography: {string.Join(", ", request.Geographies.DefaultIfEmpty("the candidate's region, or remote"))}.\n" +
             "Return ONLY a JSON array of objects: [{\"name\":\"\",\"website\":\"\",\"industry\":\"\",\"location\":\"\",\"why\":\"\"}]. " +
             "Use real companies with real public websites. Do not invent email addresses. Do not mention any personal circumstances.";
 

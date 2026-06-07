@@ -3,42 +3,25 @@ using Jobomate.Contracts;
 namespace Jobomate.Profile;
 
 /// <summary>
-/// The known candidate background. Used both as the seed for a parsed profile and
-/// as the fallback when CV parsing fails or yields too little text. Single source of
-/// truth for the honest facts (10+ yrs, biotech marketing, English native / German
-/// <b>intermediate</b>; available anytime).
+/// The neutral default profile. Jobomate does not assume any profession — the real profile comes
+/// from the candidate's own CV (loaded in the chat or Settings → Candidate profile). When no CV has
+/// been parsed yet this blank seed is used: it invents no skills, employers, industries, or
+/// languages beyond English, so the app prompts the user to load a CV / fill the profile rather than
+/// drafting on fabricated facts.
 /// </summary>
 public static class CandidateProfileDefaults
 {
     public static CandidateProfile Known() => new()
     {
         Id = "profile",
-        FullName = "Luke McLaughlin",
-        Headline = "AI-driven growth & B2B biotech / life-science marketing",
-        Location = "Munich, Germany",
-        Summary =
-            "Growth and digital-marketing leader with 10+ years across B2B biotech and life sciences: " +
-            "AI-driven growth, SEO, paid campaigns, CRM, marketing automation, AI workflows, market " +
-            "intelligence, and reporting.",
-        YearsExperience = 10,
-        Skills =
-        {
-            "AI-driven growth", "Digital marketing", "Business development",
-            "B2B biotech & life-science marketing", "SEO", "Paid campaigns", "CRM",
-            "Marketing automation", "AI workflows", "Market intelligence", "Reporting",
-        },
-        Industries = { "Biotech", "Life sciences" },
-        Tools =
-        {
-            "LLM workflows", "GA4", "Looker Studio", "Search Console", "SEMrush", "Ahrefs",
-            "ActiveCampaign", "HubSpot", "LinkedIn Sales Navigator", "Python", "JavaScript / Node",
-            "Vite", "Docker", "WordPress", "Affinity / Adobe", "DaVinci Resolve",
-        },
-        Education = { "MSc Molecular Biology", "BSc Life Sciences" },
+        FullName = "",
+        Headline = "",
+        Location = "",
+        Summary = "",
+        YearsExperience = 0,
         Languages =
         {
             new CandidateLanguage { Language = "English", Level = "native" },
-            new CandidateLanguage { Language = "German", Level = JobomateConstants.GermanLevel },
         },
         FromFallback = true,
     };

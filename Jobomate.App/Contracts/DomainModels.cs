@@ -156,6 +156,9 @@ public sealed class LlmConnectionConfig : IEntity
     public string Id { get; set; } = "llm";
     public AppConnectionType ConnectionType { get; set; } = AppConnectionType.LocalServer;
 
+    /// <summary>True once the user has connected (Save &amp; test / Connect) — gates whether the app uses the model.</summary>
+    public bool Connected { get; set; }
+
     // Cloud API
     public AppApiProvider ApiProvider { get; set; } = AppApiProvider.OpenAI;
     public string CustomEndpoint { get; set; } = "";
@@ -385,9 +388,21 @@ public sealed class BlockedCompany : IEntity
     public DateTimeOffset AddedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
+/// <summary>A chat thread (a conversation). Threads hold the assistant transcript and own runs.</summary>
+public sealed class ChatThread : IEntity
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("n");
+    public string Title { get; set; } = "New chat";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset LastActiveAt { get; set; } = DateTimeOffset.UtcNow;
+    /// <summary>JSON array of {role,text} prose turns, for re-rendering the conversation.</summary>
+    public string MessagesJson { get; set; } = "";
+}
+
 public sealed class SearchRun : IEntity
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("n");
+    public string ThreadId { get; set; } = "";
     public SearchMode Mode { get; set; } = SearchMode.RecentJobs;
     public DateTimeOffset StartedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAt { get; set; }

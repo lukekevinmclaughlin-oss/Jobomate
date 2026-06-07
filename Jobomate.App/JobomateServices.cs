@@ -38,7 +38,9 @@ public sealed class JobomateServices
     public void SetStatus(string status) { Status = status; StatusChanged?.Invoke(status); }
     public LocalLlmRuntime LocalRuntime { get; } = new();
     public ProfileService Profiles { get; }
-    public Jobomate.Extension.ExtensionBridge Extension { get; } = new();
+    /// <summary>The built-in LLM Browser (a real WebKit browser the connected LLM drives). Replaces
+    /// the old Chrome extension entirely — no install, no external Chrome.</summary>
+    public Jobomate.Browser.PlaywrightBrowser Browser { get; } = new();
     public JobSearchService JobSearch { get; }
     public FilterPipeline Filters { get; } = new();
     public ApprovalService Approval { get; }
@@ -56,6 +58,7 @@ public sealed class JobomateServices
     public Repository<SendScheduleItem> QueueRepo { get; }
     public Repository<ApplicationRecord> RecordRepo { get; }
     public Repository<SearchRun> SearchRunRepo { get; }
+    public Repository<ChatThread> ThreadRepo { get; }
     public Repository<BlockedCompany> BlockedRepo { get; }
     private readonly Repository<LlmConnectionConfig> _llmConfigRepo;
     private readonly Repository<EmailAccountConfig> _emailConfigRepo;
@@ -90,6 +93,7 @@ public sealed class JobomateServices
         QueueRepo = new Repository<SendScheduleItem>(Db);
         RecordRepo = new Repository<ApplicationRecord>(Db);
         SearchRunRepo = new Repository<SearchRun>(Db);
+        ThreadRepo = new Repository<ChatThread>(Db);
         BlockedRepo = new Repository<BlockedCompany>(Db);
         _llmConfigRepo = new Repository<LlmConnectionConfig>(Db);
         _emailConfigRepo = new Repository<EmailAccountConfig>(Db);
@@ -97,14 +101,14 @@ public sealed class JobomateServices
 
         Audit = new JobomateAuditLog(new Repository<AuditEvent>(Db), JobomatePaths.AuditDir);
         Profiles = new ProfileService(ProfileRepo, DocumentRepo);
-        try { Extension.Start(); } catch { /* bridge is best-effort */ }
-        JobSearch = JobSources.CreateDefault(Http, Credentials, Extension);
+        JobSearch = JobSources.CreateDefault(Http, Credentials);
         Approval = new ApprovalService(DraftRepo, Audit);
 
         LlmConfig = _llmConfigRepo.Get("llm") ?? new LlmConnectionConfig();
         EmailConfig = _emailConfigRepo.Get("email") ?? new EmailAccountConfig();
         Preferences = LoadPreferences();
         Profile = Profiles.Current();
+        DraftPromptBuilder.UserGuidelines = Preferences.LlmPersona;
     }
 
     public bool IsOnboarded => _prefRepo.Get("onboarded") is { } p && p.ValueJson == "true";
@@ -141,6 +145,7 @@ public sealed class JobomateServices
     public void SavePreferences(SearchPreferences prefs)
     {
         Preferences = prefs;
+        DraftPromptBuilder.UserGuidelines = prefs.LlmPersona;
         _prefRepo.Upsert(new UserPreference { Id = "search-prefs", ValueJson = JsonSerializer.Serialize(prefs, JsonOpts) });
     }
 
@@ -197,6 +202,11 @@ public sealed class JobomateServices
     public DraftGenerator BuildDraftGenerator() => new(Llm, LlmConfig);
 
     public LlmLanguageClassifier BuildLanguageClassifier() => new(Llm, LlmConfig);
+
+    /// <summary>Build a browser agent that drives the LLM Browser to collect jobs / companies,
+    /// using whatever LLM is currently connected.</summary>
+    public Jobomate.Browser.BrowserAgent BuildBrowserAgent(Action<string> onProgress, Action<string> onAssistant) =>
+        new(Llm, () => LlmConfig, Browser, Preferences, Profile, onProgress, onAssistant);
 
     private SearchPreferences LoadPreferences()
     {

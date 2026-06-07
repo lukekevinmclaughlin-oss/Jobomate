@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Jobomate.Views.SidecarView"
+             MinWidth="340">
+  <Border Classes="tahoe-panel" ClipToBounds="True">
+    <Grid RowDefinitions="Auto,1,Auto,*">
+      <DockPanel Grid.Row="0" LastChildFill="True" Margin="12,10,10,8">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+          <Button x:Name="CloseButton" Classes="sidecar-chrome" Width="28" Height="28" ToolTip.Tip="Close sidecar">
+            <Path Width="13" Height="13" Stretch="Uniform" Fill="{DynamicResource TahoeMutedTextBrush}" Data="{DynamicResource IconClose}" />
+          </Button>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Border Width="8" Height="8" CornerRadius="4" Background="{DynamicResource TahoeAccentBrush}" />
+          <TextBlock x:Name="SidecarTitle" Text="Approval wall" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TahoeTextBrush}" />
+        </StackPanel>
+      </DockPanel>
+
+      <Border Grid.Row="1" Height="1" Background="#1C1C1C" />
+
+      <WrapPanel Grid.Row="2" x:Name="Selector" Margin="10,8,10,2" />
+
+      <ScrollViewer Grid.Row="3" Padding="12,6,12,12" VerticalScrollBarVisibility="Auto">
+        <ContentControl x:Name="ContentHost" />
+      </ScrollViewer>
+    </Grid>
+  </Border>
+</UserControl>

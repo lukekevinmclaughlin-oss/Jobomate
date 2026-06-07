@@ -37,6 +37,24 @@ public partial class ConnectionSettingsHost : UserControl
         BrowseGgufButton.Click += async (_, _) => await BrowseGguf();
         OAuthSignInButton.Click += async (_, _) => await OAuthSignIn();
         SaveTestButton.Click += async (_, _) => await SaveAndTest();
+        ConnectButton.Click += (_, _) => Connect();
+        DisconnectButton.Click += (_, _) => Disconnect();
+    }
+
+    private void Connect()
+    {
+        var cfg = BuildConfig();
+        cfg.Connected = true;
+        _services.SaveLlmConfig(cfg);
+        StatusText.Text = $"● Connected · {cfg.ResolvedModel()}. Tip: use “Save & test” to verify it actually responds.";
+    }
+
+    private void Disconnect()
+    {
+        var cfg = _services.LlmConfig;
+        cfg.Connected = false;
+        _services.SaveLlmConfig(cfg);
+        StatusText.Text = "○ Disconnected. The assistant falls back to local guidance until you connect again.";
     }
 
     private void Populate()
@@ -149,7 +167,8 @@ public partial class ConnectionSettingsHost : UserControl
         var cfg = BuildConfig();
         StatusText.Text = "Testing…";
         var result = await _services.Llm.TestConnectionAsync(cfg);
-        StatusText.Text = result.Ok ? $"✓ {result.Message} {result.Sample}" : $"✗ {result.Message}";
+        if (result.Ok) { cfg.Connected = true; _services.SaveLlmConfig(cfg); }
+        StatusText.Text = result.Ok ? $"● Connected · {result.Message} {result.Sample}" : $"✗ {result.Message}";
     }
 
     private async Task Detect()

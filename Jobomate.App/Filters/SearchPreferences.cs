@@ -17,7 +17,17 @@ public sealed class SearchPreferences
 
     public bool IncludeUnclearWorkLocation { get; set; } = true;
 
-    public string Location { get; set; } = "Munich";
+    /// <summary>Empty = anywhere (derived from the candidate's profile/CV when set).</summary>
+    public string Location { get; set; } = "";
+
+    /// <summary>Free-text persona + guidelines the user gives the assistant. Injected into the chat
+    /// system prompt and the drafting prompts so the LLM treats it as its own rules for the job hunt.</summary>
+    public string LlmPersona { get; set; } = "";
+
+    /// <summary>The exact websites the assistant pulls from / searches inside via the browser
+    /// extension. Like the persona, this scopes the LLM's research — injected into its context and
+    /// used as the default research targets.</summary>
+    public List<string> SearchSites { get; set; } = new();
 
     /// <summary>When true, exclude start-date risks; otherwise they are flagged but kept.</summary>
     public bool ExcludeStartDateRisk { get; set; }
