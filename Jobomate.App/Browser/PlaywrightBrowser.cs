@@ -152,6 +152,22 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
         || CurrentUrl.Contains("ServiceLogin", StringComparison.OrdinalIgnoreCase)
         || CurrentUrl.Contains("signin", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Navigate to the Gmail inbox and report whether the user is actually signed in — i.e.
+    /// we land on the real mailbox (mail.google.com/mail) rather than a sign-in or marketing page.
+    /// Used to avoid falsely reporting "drafts created" when no one is logged in.</summary>
+    public async Task<bool> IsGmailLoggedInAsync(CancellationToken ct = default)
+    {
+        if (!await OpenAsync("https://mail.google.com/mail/u/0/", ct).ConfigureAwait(false)) return false;
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try { if (_page is not null) await _page.WaitForTimeoutAsync(1500).ConfigureAwait(false); }
+        catch { }
+        finally { _gate.Release(); }
+        var url = CurrentUrl;
+        return url.Contains("mail.google.com/mail", StringComparison.OrdinalIgnoreCase)
+            && !url.Contains("accounts.google.com", StringComparison.OrdinalIgnoreCase)
+            && !url.Contains("signin", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Return a compact JSON snapshot of the current page for the LLM to reason over.</summary>
     public async Task<string> ObserveAsync(CancellationToken ct = default)
     {

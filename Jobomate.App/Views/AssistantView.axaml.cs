@@ -640,15 +640,18 @@ public partial class AssistantView : UserControl
     {
         var emails = _services.EmailRepo.All().Where(e => !string.IsNullOrWhiteSpace(e.ToAddress)).ToList();
         if (emails.Count == 0) { AddAssistant("No application emails to create yet."); return; }
-        if (!_services.Browser.IsRunning) { AddAssistant("The browser isn't open — say “prepare emails” to open Gmail first."); return; }
-        if (_services.Browser.OnGoogleSignIn)
+
+        AddUser("Put the application emails in my Gmail drafts.");
+        _services.SetStatus("Checking Gmail sign-in…");
+        var loggedIn = await _services.Browser.IsGmailLoggedInAsync();
+        if (!loggedIn)
         {
-            AddAssistant("You're still on the Google sign-in page. Finish logging into Gmail in the browser window, then click “Create drafts in my Gmail” again.");
+            _services.SetStatus("");
+            AddAssistant("I opened Gmail but you're not signed in yet. Please log into your Google account in the LLM Browser window, then click “Create drafts in my Gmail” again — I won't create anything until you're signed in.");
             return;
         }
 
-        AddUser("Put the application emails in my Gmail drafts.");
-        AddAssistant($"Creating {emails.Count} draft(s) in your Gmail…");
+        AddAssistant($"You're signed in. Creating {emails.Count} draft(s) in your Gmail…");
         _services.SetStatus("Creating Gmail drafts…");
         var ok = 0;
         foreach (var e in emails)
