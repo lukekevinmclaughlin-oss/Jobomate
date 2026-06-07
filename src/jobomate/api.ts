@@ -42,6 +42,8 @@ export interface JobRow { id: string; title: string; company: string; location: 
 export interface CompanyRow { id: string; name: string; website: string; location: string; email?: string; }
 export interface DraftRow { id: string; company: string; role: string; status: string; to: string; subject: string; body: string; }
 export interface ChatReply { text: string; actions: string[]; }
+export interface ThreadRow { id: string; title: string; lastActive: number; active: boolean; jobs: number; drafts: number; }
+export interface ThreadMessages { id: string; title: string; messages: { role: string; content: string }[]; }
 
 export const engine = {
   status: (): Promise<EngineStatus> => get("/api/status"),
@@ -50,6 +52,26 @@ export const engine = {
   jobs: (): Promise<JobRow[]> => get("/api/jobs"),
   companies: (): Promise<CompanyRow[]> => get("/api/companies"),
   drafts: (): Promise<DraftRow[]> => get("/api/drafts"),
+  updateJob: (
+    id: string,
+    patch: Partial<Pick<JobRow, "title" | "company" | "location" | "email" | "url" | "included">>
+  ): Promise<{ ok?: boolean; error?: string }> => post("/api/jobs/update", { id, ...patch }),
+  deleteJob: (id: string): Promise<{ ok?: boolean; error?: string }> =>
+    post("/api/jobs/delete", { id }),
+  updateDraft: (
+    id: string,
+    patch: Partial<Pick<DraftRow, "role" | "company" | "to" | "subject" | "body" | "status">>
+  ): Promise<{ ok?: boolean; error?: string }> => post("/api/drafts/update", { id, ...patch }),
+  deleteDraft: (id: string): Promise<{ ok?: boolean; error?: string }> =>
+    post("/api/drafts/delete", { id }),
+  deleteJobs: (ids: string[], all = false): Promise<{ deleted: number }> => post("/api/jobs/delete-bulk", { ids, all }),
+  deleteDrafts: (ids: string[], all = false): Promise<{ deleted: number }> => post("/api/drafts/delete-bulk", { ids, all }),
+  // ---- chat threads ----
+  threads: (): Promise<ThreadRow[]> => get("/api/threads"),
+  newThread: (): Promise<{ id: string; title: string; messages: any[] }> => post("/api/thread/new"),
+  switchThread: (id: string): Promise<ThreadMessages> => post("/api/thread/switch", { id }),
+  threadMessages: (): Promise<ThreadMessages> => get("/api/thread/messages"),
+  deleteThreads: (ids: string[]): Promise<{ deleted: number; active: string }> => post("/api/thread/delete", { ids }),
   draft: (kind: "job" | "company", ids: string[] = []): Promise<any> => post("/api/draft", { kind, ids }),
   approve: (ids: string[] = []): Promise<any> => post("/api/approve", { ids }),
   schedule: (): Promise<any> => post("/api/schedule"),

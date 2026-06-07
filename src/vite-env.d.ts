@@ -228,6 +228,14 @@ interface BrowserAPI {
   shell: {
     openExternal: (url: string) => Promise<void>;
   };
+  privacy: {
+    clearBrowsingData: (opts: {
+      cookies?: boolean;
+      cache?: boolean;
+      siteData?: boolean;
+      since?: number;
+    }) => Promise<{ ok: boolean; error?: string }>;
+  };
   window: {
     setBrowserBounds: (bounds: {
       x: number;

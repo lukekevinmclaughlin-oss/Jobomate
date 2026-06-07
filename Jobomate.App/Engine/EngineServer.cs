@@ -117,8 +117,17 @@ public static class EngineServer
             // ---- repos (edit / delete / manage) ----
             case "/api/jobs/update": return e.UpdateJob(S("id"), SN("title"), SN("company"), SN("location"), SN("email"), SN("url"), BN("included"));
             case "/api/jobs/delete": return e.DeleteJob(S("id"));
+            case "/api/jobs/delete-bulk": return e.DeleteJobs(Arr("ids"), B("all"));
             case "/api/drafts/update": return e.UpdateDraft(S("id"), SN("role"), SN("company"), SN("to"), SN("subject"), SN("body"), SN("status"));
             case "/api/drafts/delete": return e.DeleteDraft(S("id"));
+            case "/api/drafts/delete-bulk": return e.DeleteDrafts(Arr("ids"), B("all"));
+
+            // ---- chat threads ----
+            case "/api/threads": return e.Threads();
+            case "/api/thread/new": return e.NewThread();
+            case "/api/thread/switch": return e.SwitchThread(S("id"));
+            case "/api/thread/messages": return e.ThreadMessages();
+            case "/api/thread/delete": return e.DeleteThreads(Arr("ids"));
 
             // ---- drafting / approval / send ----
             case "/api/draft": return await e.DraftAsync(S("kind"), Arr("ids")).ConfigureAwait(false);

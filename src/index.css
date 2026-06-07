@@ -197,12 +197,12 @@ input, select, textarea {
   background: var(--bg-tab-inactive);
   -webkit-app-region: drag;
   padding: 4px 4px 0 4px;
-  min-height: 36px;
+  min-height: 50px;
 }
 
 .tab-bar__brand {
-  width: 80px;
-  height: 80px;
+  width: 48px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -212,8 +212,8 @@ input, select, textarea {
 }
 
 .tab-bar__brand img {
-  width: 80px;
-  height: 80px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
   display: block;
 }
@@ -1650,15 +1650,28 @@ input, select, textarea {
    Jobomate workspace — the job-automation copilot docked on the right.
    ============================================================================ */
 .app__jbm-pane {
-  width: 400px;
+  width: 400px; /* default; overridden by the inline width the user drags to */
+  min-width: 300px;
   flex-shrink: 0;
-  border-left: 1px solid var(--border-primary);
   background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.jbm { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 13px; color: var(--text-primary); }
+
+/* Draggable divider between the browser and the Jobomate panel (like a window edge). */
+.app__resizer-h {
+  width: 7px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: var(--border-primary);
+  transition: background var(--transition-fast);
+}
+.app__resizer-h:hover,
+.app__resizer-h.is-dragging {
+  background: var(--accent-blue);
+}
+.jbm { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 13px; color: var(--text-primary); position: relative; }
 .jbm__head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--border-primary); }
 .jbm__brand { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .jbm__status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); }
@@ -1687,20 +1700,92 @@ input, select, textarea {
 .jbm__busy { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; }
 .jbm__spin { animation: jbm-spin 1s linear infinite; }
 @keyframes jbm-spin { to { transform: rotate(360deg); } }
-.jbm__results { border-top: 1px solid var(--border-primary); max-height: 38%; display: flex; flex-direction: column; }
+/* Draggable divider between the chat and the Jobs/Drafts list (resize either area vertically). */
+.jbm__vsplit {
+  height: 7px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: var(--border-primary);
+  transition: background var(--transition-fast);
+}
+.jbm__vsplit:hover,
+.jbm__vsplit:active {
+  background: var(--accent-blue);
+}
+.jbm__results { display: flex; flex-direction: column; min-height: 90px; }
 .jbm__tabs { display: flex; gap: 4px; padding: 6px 10px 0; }
 .jbm__tabs button { padding: 4px 10px; font-size: 12px; border: none; background: transparent; color: var(--text-secondary); border-bottom: 2px solid transparent; cursor: pointer; }
 .jbm__tabs button.on { color: var(--text-primary); border-bottom-color: var(--accent-blue); }
 .jbm__resultList { flex: 1; overflow-y: auto; padding: 6px 10px 10px; }
-.jbm__job { padding: 7px 8px; border-radius: var(--radius-md); }
+.jbm__job { padding: 7px 8px; border-radius: var(--radius-md); display: flex; align-items: center; gap: 8px; }
 .jbm__job:hover { background: var(--bg-hover); }
+.jbm__job--off { opacity: 0.45; }
+.jbm__jobMain { flex: 1; min-width: 0; }
 .jbm__jobTitle { font-size: 12.5px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
-.jbm__jobMeta { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
+.jbm__jobMeta { font-size: 11px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jbm__none { color: var(--text-secondary); font-size: 12px; padding: 8px; }
 .jbm__pill { font-size: 9.5px; padding: 1px 6px; border-radius: var(--radius-full); background: var(--bg-tertiary); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
 .jbm__pill--approved { background: color-mix(in srgb, var(--accent-green) 25%, transparent); color: var(--accent-green); }
+.jbm__pill--rejected { background: color-mix(in srgb, var(--accent-red, #ea4335) 22%, transparent); color: var(--accent-red, #ea4335); }
+
+/* per-row manage actions */
+.jbm__rowActions { display: flex; gap: 2px; flex-shrink: 0; opacity: 0.85; transition: opacity 120ms ease; }
+.jbm__job:hover .jbm__rowActions { opacity: 1; }
+.jbm__rowActions button { width: 26px; height: 26px; display: grid; place-items: center; border: none; background: transparent; color: var(--text-secondary); border-radius: var(--radius-sm); cursor: pointer; }
+.jbm__rowActions button:hover { background: var(--bg-active); color: var(--text-primary); }
+.jbm__rowActions button:hover svg { color: var(--accent-blue); }
+
+/* edit modal */
+.jbm__modalOverlay { position: absolute; inset: 0; background: var(--bg-overlay, rgba(0,0,0,0.5)); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+.jbm__modal { width: 100%; max-width: 460px; max-height: 90%; display: flex; flex-direction: column; background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: var(--radius-md); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+.jbm__modalHead { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border-primary); font-weight: 600; font-size: 13px; }
+.jbm__modalClose { border: none; background: transparent; color: var(--text-secondary); cursor: pointer; display: grid; place-items: center; }
+.jbm__modalBody { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.jbm__modalBody label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-secondary); }
+.jbm__modalBody input, .jbm__modalBody select, .jbm__modalBody textarea { border: 1px solid var(--border-primary); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); padding: 7px 9px; font-family: var(--font-sans); font-size: 13px; }
+.jbm__modalBody textarea { resize: vertical; line-height: 1.45; }
+.jbm__modalBody input:focus, .jbm__modalBody select:focus, .jbm__modalBody textarea:focus { outline: none; border-color: var(--border-focus); }
+.jbm__modalFoot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border-primary); }
+.jbm__btnGhost { padding: 7px 14px; border: 1px solid var(--border-primary); background: transparent; color: var(--text-secondary); border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; }
+.jbm__btnPrimary { padding: 7px 16px; border: none; background: var(--accent-blue); color: #fff; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; cursor: pointer; }
+.jbm__btnPrimary:disabled { opacity: 0.5; cursor: default; }
 .jbm__composer { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border-primary); align-items: flex-end; }
 .jbm__composer textarea { flex: 1; resize: none; border: 1px solid var(--border-primary); border-radius: var(--radius-md); background: var(--bg-primary); color: var(--text-primary); padding: 8px 10px; font-family: var(--font-sans); font-size: 13px; line-height: 1.4; }
 .jbm__composer textarea:focus { outline: none; border-color: var(--border-focus); }
 .jbm__sendBtn { width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; border: none; border-radius: var(--radius-md); background: var(--accent-blue); color: #fff; cursor: pointer; }
 .jbm__sendBtn:disabled { opacity: 0.4; cursor: default; }
+
+/* --- Chats (threads) bar + dropdown --- */
+.jbm__chatbar { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-primary); }
+.jbm__chatbarBtn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 12px; border: 1px solid var(--border-primary); border-radius: var(--radius-md); background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
+.jbm__chatbarBtn:hover { background: var(--bg-hover); }
+.jbm__chatsWrap { position: relative; }
+.jbm__chatsMenu { position: absolute; top: calc(100% + 6px); left: 0; width: 320px; max-width: 78vw; background: var(--bg-context-menu, var(--bg-secondary)); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); z-index: 60; overflow: hidden; }
+.jbm__chatsTools { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border-primary); font-size: 12px; }
+.jbm__chatsAll { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); cursor: pointer; }
+.jbm__chatsDelSel { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11.5px; border: none; border-radius: var(--radius-md); background: color-mix(in srgb, var(--accent-red) 22%, transparent); color: var(--accent-red); cursor: pointer; }
+.jbm__chatsList { max-height: 320px; overflow-y: auto; padding: 4px; }
+.jbm__chatItem { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-md); }
+.jbm__chatItem:hover { background: var(--bg-hover); }
+.jbm__chatItem.is-active { background: color-mix(in srgb, var(--accent-blue) 16%, transparent); }
+.jbm__chatTitle { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; border: none; background: transparent; color: var(--text-primary); cursor: pointer; text-align: left; }
+.jbm__chatName { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.jbm__chatMeta { font-size: 10.5px; color: var(--text-secondary); }
+.jbm__chatDel { width: 24px; height: 24px; flex-shrink: 0; display: grid; place-items: center; border: none; background: transparent; color: var(--text-secondary); border-radius: var(--radius-sm); cursor: pointer; opacity: 0; }
+.jbm__chatItem:hover .jbm__chatDel { opacity: 1; }
+.jbm__chatDel:hover { color: var(--accent-red); background: var(--bg-active); }
+.jbm__chatsHint { padding: 6px 10px; font-size: 10.5px; color: var(--text-secondary); border-top: 1px solid var(--border-primary); }
+
+/* --- jobs/drafts bulk bar + row checkbox --- */
+.jbm__resultBar { display: flex; align-items: center; gap: 10px; padding: 5px 12px; font-size: 11.5px; color: var(--text-secondary); border-bottom: 1px solid var(--border-primary); }
+.jbm__resultBar label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.jbm__resultBar button { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11.5px; border: 1px solid var(--border-primary); border-radius: var(--radius-md); background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
+.jbm__resultBar button:hover { background: var(--bg-hover); }
+.jbm__delAll { margin-left: auto; color: var(--accent-red) !important; }
+.jbm__rowCheck { flex-shrink: 0; margin-right: 2px; }
+.jbm__job.is-sel { background: color-mix(in srgb, var(--accent-blue) 14%, transparent); }
+
+/* --- resizable message box --- */
+.jbm__composerSplit { height: 7px; flex-shrink: 0; cursor: row-resize; background: var(--border-primary); transition: background var(--transition-fast); }
+.jbm__composerSplit:hover, .jbm__composerSplit:active { background: var(--accent-blue); }
+.jbm__composer textarea { overflow-y: auto; }

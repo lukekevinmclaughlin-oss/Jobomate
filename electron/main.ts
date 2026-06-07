@@ -39,6 +39,12 @@ const isDev = !electron.app.isPackaged && Boolean(devServerUrl);
 const DEFAULT_HOME = "https://www.google.com";
 const FALLBACK_CONTENT_TOP = 92;
 
+// All web browsing happens in a dedicated, persistent session — isolated from the app's own
+// storage (settings/history/bookmarks). So the user can clear cookies, cache and site data like
+// any browser, without wiping the app's configuration.
+const BROWSING_PARTITION = "persist:jobomate-web";
+const browsingSession = (): electron.Session => electron.session.fromPartition(BROWSING_PARTITION);
+
 let mainWindow: electron.BrowserWindow | null = null;
 let browserViews: Map<string, TabRecord> = new Map();
 let activeTabId: string | null = null;
@@ -50,8 +56,10 @@ electron.app.setName("Jobomate");
 electron.app.setAppUserModelId("com.jobomate.app");
 
 // Single-instance: a second launch focuses the existing window instead of starting a duplicate
-// (which would collide on the control-server / engine ports).
-if (!electron.app.requestSingleInstanceLock()) {
+// (which would collide on the control-server / engine ports). gotLock gates app startup so a
+// losing instance exits WITHOUT running whenReady (which would otherwise bind the ports and crash).
+const gotSingleInstanceLock = electron.app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
   electron.app.quit();
 } else {
   electron.app.on("second-instance", () => {
@@ -146,7 +154,8 @@ function emitDownload(channel: string, payload: DownloadSnapshot): void {
 }
 
 function setupDownloads(): void {
-  electron.session.defaultSession.on("will-download", (_event, item) => {
+  // Downloads originate from the browsing session (where the BrowserViews live).
+  browsingSession().on("will-download", (_event, item) => {
     const id = `dl-${++downloadCounter}`;
     downloads.set(id, item);
 
@@ -457,6 +466,7 @@ function createBrowserView(rawUrl?: string): TabSnapshot {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      partition: BROWSING_PARTITION,
     },
   });
 
@@ -953,12 +963,42 @@ function setupIpcHandlers(
     return electron.shell.openExternal(url);
   });
 
+  // Clear browsing data the way any browser does — cookies/logins, cache, and site data — on the
+  // dedicated browsing session only (the app's own settings/history are untouched). Optional
+  // `since` (ms epoch) limits cookies/cache to that time range; omit to clear everything.
+  electron.ipcMain.handle(
+    "privacy:clear-browsing-data",
+    async (_event, opts: { cookies?: boolean; cache?: boolean; siteData?: boolean; since?: number }) => {
+      const ses = browsingSession();
+      try {
+        if (opts?.cache) {
+          await ses.clearCache();
+        }
+        type Storage = "cookies" | "cachestorage" | "shadercache" | "localstorage" | "indexdb" | "websql" | "serviceworkers" | "filesystem";
+        const storages: Storage[] = [];
+        if (opts?.cookies) storages.push("cookies");
+        if (opts?.cache) storages.push("cachestorage", "shadercache");
+        if (opts?.siteData) storages.push("localstorage", "indexdb", "websql", "serviceworkers", "filesystem", "cachestorage", "shadercache");
+        if (storages.length) {
+          await ses.clearStorageData({ storages: Array.from(new Set(storages)) });
+        }
+        if (opts?.cookies) {
+          try { await ses.clearAuthCache(); } catch { /* best effort */ }
+        }
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: (error as Error).message };
+      }
+    }
+  );
+
   electron.ipcMain.on("window:browser-bounds", (_event, bounds: electron.Rectangle) => {
     setBrowserBounds(bounds);
   });
 }
 
 electron.app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return; // a duplicate launch: do nothing (the primary already owns the ports)
   startEngine(); // headless Jobomate job-automation backend (localhost:9223)
   const controller = createBrowserController();
   llmConnectionManager = new LlmConnectionManager(() => controller);

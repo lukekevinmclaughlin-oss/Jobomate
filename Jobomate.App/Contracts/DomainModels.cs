@@ -277,6 +277,9 @@ public sealed class JobPosting : IEntity
 
     public string SearchRunId { get; set; } = "";
 
+    /// <summary>The chat thread this posting was collected under (for per-thread scoping).</summary>
+    public string ThreadId { get; set; } = "";
+
     /// <summary>Stable key for deduplication across sources.</summary>
     public string DedupKey { get; set; } = "";
 }
@@ -310,6 +313,7 @@ public sealed class ApplicationDraft : IEntity
     public ApplicationKind Kind { get; set; } = ApplicationKind.JobApplication;
     public string JobPostingId { get; set; } = "";
     public string CompanyTargetId { get; set; } = "";
+    public string ThreadId { get; set; } = "";
     public string Company { get; set; } = "";
     public string RoleTitle { get; set; } = "";
 

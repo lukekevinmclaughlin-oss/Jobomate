@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,6 +25,7 @@ public sealed class JobomateEngine
 {
     public JobomateServices Services { get; } = new();
     private readonly List<ChatMessage> _history = new();
+    private string _activeThreadId = "";
 
     public JobomateEngine()
     {
@@ -41,6 +43,109 @@ public sealed class JobomateEngine
             }
             catch { }
         }
+        EnsureActiveThread();
+    }
+
+    // ---------------------------------------------------------------- chat threads ----
+
+    private void EnsureActiveThread()
+    {
+        var threads = Services.ThreadRepo.All().OrderByDescending(t => t.LastActiveAt).ToList();
+        var active = threads.Count > 0 ? threads[0] : null;
+        if (active is null) { active = new ChatThread(); Services.ThreadRepo.Upsert(active); }
+        _activeThreadId = active.Id;
+        // One-time migration: adopt any untagged jobs/drafts into the active thread so existing data stays visible.
+        foreach (var j in Services.JobRepo.All().Where(j => string.IsNullOrEmpty(j.ThreadId)).ToList()) { j.ThreadId = _activeThreadId; Services.JobRepo.Upsert(j); }
+        foreach (var d in Services.DraftRepo.All().Where(d => string.IsNullOrEmpty(d.ThreadId)).ToList()) { d.ThreadId = _activeThreadId; Services.DraftRepo.Upsert(d); }
+        LoadHistory(active);
+    }
+
+    private void LoadHistory(ChatThread t)
+    {
+        _history.Clear();
+        if (string.IsNullOrWhiteSpace(t.MessagesJson)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(t.MessagesJson);
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var role = el.TryGetProperty("role", out var r) ? r.GetString() ?? "" : "";
+                var text = el.TryGetProperty("text", out var x) ? x.GetString() ?? "" : "";
+                if (role is "user" or "assistant") _history.Add(new ChatMessage(role, text));
+            }
+        }
+        catch { }
+    }
+
+    private void PersistThreadMessages()
+    {
+        var t = Services.ThreadRepo.Get(_activeThreadId);
+        if (t is null) return;
+        t.MessagesJson = JsonSerializer.Serialize(_history.Select(m => new { role = m.Role, text = m.Content }));
+        var firstUser = _history.FirstOrDefault(m => m.Role == "user");
+        if (firstUser is not null && (string.IsNullOrWhiteSpace(t.Title) || t.Title == "New chat"))
+            t.Title = firstUser.Content.Length <= 42 ? firstUser.Content : firstUser.Content[..42] + "…";
+        t.LastActiveAt = DateTimeOffset.UtcNow;
+        Services.ThreadRepo.Upsert(t);
+    }
+
+    private object ThreadView(ChatThread t) => new
+    {
+        id = t.Id,
+        title = string.IsNullOrWhiteSpace(t.Title) ? "New chat" : t.Title,
+        lastActive = t.LastActiveAt.ToUnixTimeMilliseconds(),
+        active = t.Id == _activeThreadId,
+        jobs = Services.JobRepo.All().Count(j => j.ThreadId == t.Id),
+        drafts = Services.DraftRepo.All().Count(d => d.ThreadId == t.Id),
+    };
+
+    public object Threads() => Services.ThreadRepo.All().OrderByDescending(t => t.LastActiveAt).Select(ThreadView).ToList();
+
+    public object NewThread()
+    {
+        var t = new ChatThread();
+        Services.ThreadRepo.Upsert(t);
+        _activeThreadId = t.Id;
+        _history.Clear();
+        return new { id = t.Id, title = t.Title, messages = Array.Empty<object>() };
+    }
+
+    public object SwitchThread(string id)
+    {
+        var t = Services.ThreadRepo.Get(id);
+        if (t is null) return new { error = "thread not found" };
+        _activeThreadId = id;
+        LoadHistory(t);
+        return ThreadMessages();
+    }
+
+    public object ThreadMessages()
+    {
+        var t = Services.ThreadRepo.Get(_activeThreadId);
+        return new
+        {
+            id = _activeThreadId,
+            title = t?.Title ?? "New chat",
+            messages = _history.Select(m => new { role = m.Role, content = m.Content }).ToList(),
+        };
+    }
+
+    public object DeleteThreads(string[] ids)
+    {
+        foreach (var id in ids)
+        {
+            if (string.IsNullOrWhiteSpace(id)) continue;
+            foreach (var j in Services.JobRepo.All().Where(j => j.ThreadId == id).ToList()) Services.JobRepo.Delete(j.Id);
+            foreach (var d in Services.DraftRepo.All().Where(d => d.ThreadId == id).ToList())
+            {
+                var em = Services.EmailRepo.All().FirstOrDefault(e => e.ApplicationDraftId == d.Id);
+                if (em is not null) Services.EmailRepo.Delete(em.Id);
+                Services.DraftRepo.Delete(d.Id);
+            }
+            Services.ThreadRepo.Delete(id);
+        }
+        if (ids.Contains(_activeThreadId) || Services.ThreadRepo.Get(_activeThreadId) is null) EnsureActiveThread();
+        return new { deleted = ids.Length, active = _activeThreadId };
     }
 
     // ---------------------------------------------------------------- config / status ----
@@ -64,7 +169,8 @@ public sealed class JobomateEngine
     {
         var s = Services;
         var (pt, ct, _) = s.CostLedger.Totals();
-        var drafts = s.DraftRepo.All();
+        var myDrafts = s.DraftRepo.All().Where(d => d.ThreadId == _activeThreadId).ToList();
+        var hasCv = HasCv();
         return new
         {
             connected = LlmConfigured(),
@@ -74,14 +180,16 @@ public sealed class JobomateEngine
             dryRun = s.BuildEmailSender().IsDryRun,
             emailProvider = s.EmailConfig.Provider.ToString(),
             status = s.Status,
-            jobs = s.JobRepo.Count(),
+            threadId = _activeThreadId,
+            jobs = s.JobRepo.All().Count(j => j.ThreadId == _activeThreadId),
             companies = s.CompanyRepo.Count(),
-            draftsPending = drafts.Count(d => d.Status == DraftStatus.Draft),
-            draftsApproved = drafts.Count(d => d.Status == DraftStatus.Approved),
+            draftsPending = myDrafts.Count(d => d.Status == DraftStatus.Draft),
+            draftsApproved = myDrafts.Count(d => d.Status == DraftStatus.Approved),
             queued = s.QueueRepo.All().Count(i => i.Status == SendStatus.Pending),
             tokens = (pt ?? 0) + (ct ?? 0),
-            profileName = s.Profile.FullName,
-            profileHeadline = s.Profile.Headline,
+            hasCv,
+            profileName = hasCv ? s.Profile.FullName : "",
+            profileHeadline = hasCv ? s.Profile.Headline : "",
             sites = s.Preferences.SearchSites,
             persona = s.Preferences.LlmPersona,
             browserRunning = s.Browser.IsRunning,
@@ -121,33 +229,38 @@ public sealed class JobomateEngine
         var (clean, actions) = ParseDirectives(resp ?? "");
         _history.Add(new ChatMessage("user", text));
         _history.Add(new ChatMessage("assistant", clean));
-        if (_history.Count > 24) _history.RemoveRange(0, _history.Count - 24);
+        if (_history.Count > 40) _history.RemoveRange(0, _history.Count - 40);
+        PersistThreadMessages();
         return new { text = clean, actions };
+    }
+
+    /// <summary>True only when a CV is genuinely loaded (a document is on file). The assistant must not
+    /// claim or invent the user's name unless this holds.</summary>
+    private bool HasCv()
+    {
+        var p = Services.Profile;
+        return !string.IsNullOrEmpty(p.CvDocumentId) && Services.Profiles.CvDocument(p.CvDocumentId) is not null;
     }
 
     private List<ChatMessage> BuildMessages(string userText)
     {
         var p = Services.Profile;
-        var who = string.IsNullOrWhiteSpace(p.FullName) && string.IsNullOrWhiteSpace(p.Headline)
-            ? "The user has not loaded a CV yet — if they want to apply for jobs, suggest loading one."
-            : $"The user is {p.FullName}{(string.IsNullOrWhiteSpace(p.Headline) ? "" : " — " + p.Headline)}{(string.IsNullOrWhiteSpace(p.Location) ? "" : ", based in " + p.Location)}.";
+        var hasCv = HasCv();
+        var who = hasCv && !string.IsNullOrWhiteSpace(p.FullName)
+            ? $"The user's name is {p.FullName}{(string.IsNullOrWhiteSpace(p.Headline) ? "" : " — " + p.Headline)}{(string.IsNullOrWhiteSpace(p.Location) ? "" : ", based in " + p.Location)} (from their loaded CV). "
+              + "Do NOT open every message with \"Hi <name>\"; use their name only occasionally and when it reads naturally."
+            : "No CV is loaded, so you do NOT know the user's name — never invent, guess or assume a name, and do not greet them by a name.";
 
-        var drafts = Services.DraftRepo.All();
-        var jobCount = Services.JobRepo.Count();
-        var companyCount = Services.CompanyRepo.Count();
-        var state = $"Current state: {jobCount} job postings collected, {companyCount} companies collected, {drafts.Count(d => d.Status == DraftStatus.Draft)} drafts pending, {drafts.Count(d => d.Status == DraftStatus.Approved)} approved.";
+        var myJobs = Services.JobRepo.All().Where(j => j.ThreadId == _activeThreadId).ToList();
+        var myDrafts = Services.DraftRepo.All().Where(d => d.ThreadId == _activeThreadId).ToList();
+        var state = $"Current state (this chat): {myJobs.Count} job postings collected, {myDrafts.Count(d => d.Status == DraftStatus.Draft)} drafts pending, {myDrafts.Count(d => d.Status == DraftStatus.Approved)} approved.";
 
         var collected = "";
-        if (jobCount > 0)
+        if (myJobs.Count > 0)
         {
-            var rows = Services.JobRepo.All().OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore).Take(25)
+            var rows = myJobs.OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore).Take(25)
                 .Select(j => $"- {j.Title}{(string.IsNullOrWhiteSpace(j.Company) ? "" : " @ " + j.Company)}{(string.IsNullOrWhiteSpace(j.Location) ? "" : " (" + j.Location + ")")}");
-            collected = "\n\nJob postings already collected (real, in the app — to display them use [[ACTION:list]], don't re-search):\n" + string.Join("\n", rows);
-        }
-        else if (companyCount > 0)
-        {
-            var rows = Services.CompanyRepo.All().Take(25).Select(c => $"- {c.Name}{(string.IsNullOrWhiteSpace(c.Website) ? "" : " — " + c.Website)}");
-            collected = "\n\nCompanies already collected (real — to display use [[ACTION:list]]):\n" + string.Join("\n", rows);
+            collected = "\n\nJob postings already collected in this chat (real, in the app — to display them use [[ACTION:list]], don't re-search):\n" + string.Join("\n", rows);
         }
 
         var system =
@@ -216,7 +329,7 @@ public sealed class JobomateEngine
         var agent = Services.BuildBrowserAgent(onProgress, onProgress);
         var result = await agent.RunAsync(url, g, 25, run.Id, ct).ConfigureAwait(false);
         if (g == BrowserGoal.Companies) Services.CompanyRepo.UpsertAll(result.Companies);
-        else Services.JobRepo.UpsertAll(result.Jobs);
+        else { foreach (var j in result.Jobs) j.ThreadId = _activeThreadId; Services.JobRepo.UpsertAll(result.Jobs); }
         run.Status = SearchRunStatus.Completed; run.CompletedAt = DateTimeOffset.UtcNow; run.ResultCount = result.Count;
         Services.SearchRunRepo.Upsert(run);
         return new { jobs = result.Jobs.Count, companies = result.Companies.Count, summary = result.Summary };
@@ -225,17 +338,38 @@ public sealed class JobomateEngine
     // ---------------------------------------------------------------- repos (read) ----
 
     public object Jobs() => Services.JobRepo.All()
+        .Where(j => j.ThreadId == _activeThreadId)
         .OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore)
         .Select(j => new { id = j.Id, title = j.Title, company = j.Company, location = j.Location, url = j.SourceUrl, email = j.ContactEmail, included = j.Included }).ToList();
 
     public object Companies() => Services.CompanyRepo.All()
         .Select(c => new { id = c.Id, name = c.Name, website = c.Website, location = c.Location, email = c.RecruitingEmail }).ToList();
 
-    public object Drafts() => Services.DraftRepo.All().Select(d =>
+    public object Drafts() => Services.DraftRepo.All().Where(d => d.ThreadId == _activeThreadId).Select(d =>
     {
         var email = Services.EmailRepo.All().FirstOrDefault(e => e.ApplicationDraftId == d.Id);
         return new { id = d.Id, company = d.Company, role = d.RoleTitle, status = d.Status.ToString(), to = email?.ToAddress ?? "", subject = email?.Subject ?? "", body = email?.Body ?? "" };
     }).ToList();
+
+    /// <summary>Bulk delete. With ids: those rows. Without ids (all=true): every job in the active chat.</summary>
+    public object DeleteJobs(string[] ids, bool all)
+    {
+        var targets = all ? Services.JobRepo.All().Where(j => j.ThreadId == _activeThreadId).Select(j => j.Id).ToList() : ids.ToList();
+        foreach (var id in targets) Services.JobRepo.Delete(id);
+        return new { deleted = targets.Count };
+    }
+
+    public object DeleteDrafts(string[] ids, bool all)
+    {
+        var targets = all ? Services.DraftRepo.All().Where(d => d.ThreadId == _activeThreadId).Select(d => d.Id).ToList() : ids.ToList();
+        foreach (var id in targets)
+        {
+            var em = Services.EmailRepo.All().FirstOrDefault(e => e.ApplicationDraftId == id);
+            if (em is not null) Services.EmailRepo.Delete(em.Id);
+            Services.DraftRepo.Delete(id);
+        }
+        return new { deleted = targets.Count };
+    }
 
     // ---------------------------------------------------------------- repos (manage / write) ----
 
@@ -314,19 +448,21 @@ public sealed class JobomateEngine
                 if (ct.IsCancellationRequested) break;
                 var res = configured ? await SafeDraftAsync(() => gen.ForCompanyAsync(profile, c, cv), () => DraftGenerator.OfflineForCompany(profile, c, cv)).ConfigureAwait(false)
                                      : DraftGenerator.OfflineForCompany(profile, c, cv);
-                Persist(new ApplicationDraft { Kind = ApplicationKind.Unsolicited, CompanyTargetId = c.Id, Company = c.Name, RoleTitle = "Speculative application" }, res);
+                Persist(new ApplicationDraft { Kind = ApplicationKind.Unsolicited, CompanyTargetId = c.Id, Company = c.Name, RoleTitle = "Speculative application", ThreadId = _activeThreadId }, res);
                 made++;
             }
         }
         else
         {
-            var jobs = ids.Length > 0 ? ids.Select(i => Services.JobRepo.Get(i)).Where(j => j is not null).Select(j => j!).ToList() : Services.JobRepo.All().ToList();
+            var jobs = ids.Length > 0
+                ? ids.Select(i => Services.JobRepo.Get(i)).Where(j => j is not null).Select(j => j!).ToList()
+                : Services.JobRepo.All().Where(j => j.ThreadId == _activeThreadId).ToList();
             foreach (var j in jobs)
             {
                 if (ct.IsCancellationRequested) break;
                 var res = configured ? await SafeDraftAsync(() => gen.ForJobAsync(profile, j, cv), () => DraftGenerator.OfflineForJob(profile, j, cv)).ConfigureAwait(false)
                                      : DraftGenerator.OfflineForJob(profile, j, cv);
-                Persist(new ApplicationDraft { Kind = ApplicationKind.JobApplication, JobPostingId = j.Id, Company = j.Company, RoleTitle = j.Title }, res);
+                Persist(new ApplicationDraft { Kind = ApplicationKind.JobApplication, JobPostingId = j.Id, Company = j.Company, RoleTitle = j.Title, ThreadId = _activeThreadId }, res);
                 made++;
             }
         }

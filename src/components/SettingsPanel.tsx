@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useHistoryStore } from "../stores/historyStore";
+import { useDownloadStore } from "../stores/downloadStore";
 import logoWebp from "../assets/logo.webp";
 import logoPng from "../assets/logo.png";
 import {
@@ -11,7 +13,9 @@ import {
   Save,
   Server,
   Settings,
+  ShieldCheck,
   TerminalSquare,
+  Trash2,
   X,
   XCircle,
 } from "lucide-react";
@@ -73,11 +77,43 @@ const oauthProviders: LlmOAuthProvider[] = [
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
   const { settings, updateSettings, resetSettings } = useSettingsStore();
+  const clearHistory = useHistoryStore((s) => s.clearHistory);
+  const clearDownloads = useDownloadStore((s) => s.clearCompleted);
   const [localSettings, setLocalSettings] = useState({ ...settings });
   const [llmConfig, setLlmConfig] = useState<LlmConnectionConfig | null>(null);
   const [status, setStatus] = useState("Settings ready.");
   const [statusKind, setStatusKind] = useState<"idle" | "ok" | "error">("idle");
   const [busy, setBusy] = useState(false);
+
+  // "Clear browsing data" — what to wipe + progress.
+  const [clearOpts, setClearOpts] = useState({ history: true, cookies: true, cache: true, siteData: false, downloads: true });
+  const [clearing, setClearing] = useState(false);
+  const [clearMsg, setClearMsg] = useState("");
+
+  const handleClearData = async () => {
+    setClearing(true);
+    setClearMsg("");
+    try {
+      if (clearOpts.history) clearHistory();
+      if (clearOpts.downloads) clearDownloads();
+      if (clearOpts.cookies || clearOpts.cache || clearOpts.siteData) {
+        const r = await window.browserAPI?.privacy?.clearBrowsingData({
+          cookies: clearOpts.cookies,
+          cache: clearOpts.cache,
+          siteData: clearOpts.siteData,
+        });
+        if (r && !r.ok) {
+          setClearMsg("Couldn't clear site data: " + (r.error || "error"));
+          setClearing(false);
+          return;
+        }
+      }
+      setClearMsg("Browsing data cleared.");
+    } catch (e) {
+      setClearMsg("Error: " + (e as Error).message);
+    }
+    setClearing(false);
+  };
 
   const activeType = llmConfig?.connectionType || "LocalServer";
   const secretPlaceholder = useMemo(() => {
@@ -581,6 +617,48 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
                 onChange={(event) => updateBrowserSetting("clearDataOnExit", event.target.checked)}
               />
             </label>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section__heading">
+            <ShieldCheck size={16} />
+            <h3>Privacy &amp; data</h3>
+          </div>
+          <p className="settings-status">
+            Clear what the browser stores as you browse. Your Jobomate settings, collected jobs and drafts are kept.
+          </p>
+          <div className="settings-grid">
+            <label className="settings-field settings-field--inline">
+              <span>Browsing history</span>
+              <input type="checkbox" checked={clearOpts.history}
+                onChange={(e) => setClearOpts((o) => ({ ...o, history: e.target.checked }))} />
+            </label>
+            <label className="settings-field settings-field--inline">
+              <span>Cookies &amp; logins</span>
+              <input type="checkbox" checked={clearOpts.cookies}
+                onChange={(e) => setClearOpts((o) => ({ ...o, cookies: e.target.checked }))} />
+            </label>
+            <label className="settings-field settings-field--inline">
+              <span>Cached files</span>
+              <input type="checkbox" checked={clearOpts.cache}
+                onChange={(e) => setClearOpts((o) => ({ ...o, cache: e.target.checked }))} />
+            </label>
+            <label className="settings-field settings-field--inline">
+              <span>Site data (local storage)</span>
+              <input type="checkbox" checked={clearOpts.siteData}
+                onChange={(e) => setClearOpts((o) => ({ ...o, siteData: e.target.checked }))} />
+            </label>
+            <label className="settings-field settings-field--inline">
+              <span>Download history</span>
+              <input type="checkbox" checked={clearOpts.downloads}
+                onChange={(e) => setClearOpts((o) => ({ ...o, downloads: e.target.checked }))} />
+            </label>
+            <button className="settings-panel__btn-reset" onClick={handleClearData} disabled={clearing}>
+              <Trash2 size={14} />
+              {clearing ? "Clearing…" : "Clear browsing data"}
+            </button>
+            {clearMsg && <p className="settings-status">{clearMsg}</p>}
           </div>
         </section>
 

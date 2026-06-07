@@ -78,6 +78,10 @@ contextBridge.exposeInMainWorld("browserAPI", {
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
   },
+  privacy: {
+    clearBrowsingData: (opts: { cookies?: boolean; cache?: boolean; siteData?: boolean; since?: number }) =>
+      ipcRenderer.invoke("privacy:clear-browsing-data", opts),
+  },
   window: {
     setBrowserBounds: (bounds: {
       x: number;

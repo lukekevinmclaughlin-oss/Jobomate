@@ -27,6 +27,34 @@ const App: React.FC = () => {
     "bookmarks" | "history" | "downloads"
   >("bookmarks");
 
+  // User-resizable Jobomate pane (drag the divider between the browser and the panel).
+  const [paneWidth, setPaneWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("jbm_pane_w"));
+    return saved >= 300 && saved <= 1000 ? saved : 400;
+  });
+  const [draggingPane, setDraggingPane] = useState(false);
+  const paneWidthRef = useRef(paneWidth);
+  paneWidthRef.current = paneWidth;
+
+  const startPaneDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setDraggingPane(true);
+    const startX = e.clientX;
+    const startW = paneWidthRef.current;
+    const onMove = (ev: MouseEvent) => {
+      const max = Math.min(window.innerWidth - 360, 1000);
+      setPaneWidth(Math.min(Math.max(startW + (startX - ev.clientX), 300), max));
+    };
+    const onUp = () => {
+      setDraggingPane(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      localStorage.setItem("jbm_pane_w", String(paneWidthRef.current));
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, []);
+
   const { addTab, removeTab, setActiveTab, syncTabs, upsertTab, getActiveTab } =
     useTabStore();
   const { settings } = useSettingsStore();
@@ -244,11 +272,19 @@ const App: React.FC = () => {
       {/* Main Content */}
       <div className="app__content">
         <div className="app__main-stack">
-          <BrowserView suspended={showSettings} />
+          {/* Hide the native browser while dragging so the cursor keeps tracking over it. */}
+          <BrowserView suspended={showSettings || draggingPane} />
         </div>
 
+        {/* Drag this divider to resize the Jobomate panel ↔ browser, like a window edge. */}
+        <div
+          className={`app__resizer-h ${draggingPane ? "is-dragging" : ""}`}
+          onMouseDown={startPaneDrag}
+          title="Drag to resize"
+        />
+
         {/* Jobomate workspace — the job-automation copilot, always docked on the right */}
-        <div className="app__jbm-pane">
+        <div className="app__jbm-pane" style={{ width: paneWidth }}>
           <JobomatePanel />
         </div>
 
