@@ -391,11 +391,18 @@ public partial class AssistantView : UserControl
 
         var included = jobs.Where(j => j.Included).ToList();
         AddAssistant($"Found {jobs.Count} postings; {included.Count} pass your filters. Tick the ones you want and I'll draft tailored applications with cover letters.");
+        PresentJobs(jobs);
+    }
 
+    /// <summary>Render a checklist of job postings in chat with a draft action. Shared by the normal
+    /// search, the LLM Browser collection, and the [[ACTION:list]] directive.</summary>
+    private void PresentJobs(IReadOnlyList<JobPosting> jobs)
+    {
         _jobChecks.Clear();
+        var included = jobs.Count(j => j.Included);
         var panel = new StackPanel { Spacing = 8 };
-        panel.Children.Add(Header($"{included.Count} matches (of {jobs.Count})"));
-        foreach (var job in jobs.OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore).Take(25))
+        panel.Children.Add(Header(included > 0 ? $"{included} matches (of {jobs.Count})" : $"{jobs.Count} postings"));
+        foreach (var job in jobs.OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore).Take(40))
         {
             var cb = new CheckBox { IsChecked = job.Included, Content = JobRowContent(job) };
             _jobChecks.Add((cb, job));
@@ -405,7 +412,7 @@ public partial class AssistantView : UserControl
 
         SetActions(
             ("Draft applications for selected", () => _ = GenerateJobDrafts()),
-            ("Select all included", SelectAllIncludedJobs),
+            ("Select all", () => { foreach (var (box, _) in _jobChecks) box.IsChecked = true; }),
             ("Research in browser", () => _openSidecar("browser")));
     }
 
@@ -428,11 +435,17 @@ public partial class AssistantView : UserControl
         var withEmail = companies.Count(c => c.ContactStatus == ContactStatus.HasEmail);
         AddAssistant($"Found {companies.Count} companies; {withEmail} have an official recruiting email. " +
                      "Ones marked “needs manual contact” won't be scheduled. Tick the ones to approach.");
+        PresentCompanies(companies);
+    }
 
+    /// <summary>Render a checklist of companies in chat with a draft action. Shared by company
+    /// research, the LLM Browser collection, and the [[ACTION:list]] directive.</summary>
+    private void PresentCompanies(IReadOnlyList<CompanyTarget> companies)
+    {
         _companyChecks.Clear();
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(Header($"{companies.Count} companies"));
-        foreach (var company in companies)
+        foreach (var company in companies.Take(40))
         {
             var cb = new CheckBox { IsChecked = company.ContactStatus == ContactStatus.HasEmail, Content = CompanyRowContent(company) };
             _companyChecks.Add((cb, company));
@@ -442,6 +455,7 @@ public partial class AssistantView : UserControl
 
         SetActions(
             ("Draft applications for selected", () => _ = GenerateCompanyDrafts()),
+            ("Select all", () => { foreach (var (box, _) in _companyChecks) box.IsChecked = true; }),
             ("Adjust filters", () => _openSidecar("settings")));
     }
 
@@ -625,7 +639,25 @@ public partial class AssistantView : UserControl
             : $"The user is {p.FullName}{(string.IsNullOrWhiteSpace(p.Headline) ? "" : " — " + p.Headline)}{(string.IsNullOrWhiteSpace(p.Location) ? "" : ", based in " + p.Location)}.";
 
         var drafts = _services.DraftRepo.All();
-        var state = $"Current state: {_services.JobRepo.Count()} jobs found, {drafts.Count(d => d.Status == DraftStatus.Draft)} drafts pending, {drafts.Count(d => d.Status == DraftStatus.Approved)} approved.";
+        var jobCount = _services.JobRepo.Count();
+        var companyCount = _services.CompanyRepo.Count();
+        var state = $"Current state: {jobCount} job postings collected, {companyCount} companies collected, {drafts.Count(d => d.Status == DraftStatus.Draft)} drafts pending, {drafts.Count(d => d.Status == DraftStatus.Approved)} approved.";
+
+        // Give the model the actual collected items so it can list/discuss them instead of starting a new search.
+        var collected = "";
+        if (jobCount > 0)
+        {
+            var rows = _services.JobRepo.All()
+                .OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore)
+                .Take(25)
+                .Select(j => $"- {j.Title}{(string.IsNullOrWhiteSpace(j.Company) ? "" : " @ " + j.Company)}{(string.IsNullOrWhiteSpace(j.Location) ? "" : " (" + j.Location + ")")}");
+            collected = "\n\nJob postings already collected (these are real, in the app — do NOT invent or re-search; to display them as a checklist use [[ACTION:list]]):\n" + string.Join("\n", rows);
+        }
+        else if (companyCount > 0)
+        {
+            var rows = _services.CompanyRepo.All().Take(25).Select(c => $"- {c.Name}{(string.IsNullOrWhiteSpace(c.Website) ? "" : " — " + c.Website)}");
+            collected = "\n\nCompanies already collected (real, in the app — to display them use [[ACTION:list]]):\n" + string.Join("\n", rows);
+        }
 
         var system =
             "You are the Jobomate assistant — a warm, capable copilot inside a job-search and application-automation app. " +
@@ -635,6 +667,8 @@ public partial class AssistantView : UserControl
             "[[ACTION:recent]] — find & rank recent job postings\n" +
             "[[ACTION:unsolicited]] — research employers for speculative applications\n" +
             "[[ACTION:run]] — run the current search\n" +
+            "[[ACTION:list]] — show the job postings / companies ALREADY collected, as a checklist in chat\n" +
+            "[[ACTION:draft]] — draft tailored applications for the collected/selected postings (you review before anything sends)\n" +
             "[[ACTION:approve]] — approve all pending drafts\n" +
             "[[ACTION:schedule]] — schedule approved applications to send gradually\n" +
             "[[ACTION:send]] — send due items (dry-run unless a real email account is connected)\n" +
@@ -643,7 +677,10 @@ public partial class AssistantView : UserControl
             "[[ACTION:companies]] — drive the LLM Browser to collect companies for speculative/unsolicited applications\n" +
             "[[ACTION:settings]] — open settings\n" +
             "Only add a directive when the user actually asks for that action; otherwise just reply normally with no directive. " +
-            "When drafting applications, never invent the user's skills, employers, titles, or experience. Keep replies concise.";
+            "If the user asks to see/list the jobs you've already collected, do NOT start a new browser search — append [[ACTION:list]]. " +
+            "If they ask to apply or prepare applications, append [[ACTION:draft]]. " +
+            "When drafting applications, never invent the user's skills, employers, titles, or experience. Keep replies concise." +
+            collected;
 
         var persona = _services.Preferences.LlmPersona;
         if (!string.IsNullOrWhiteSpace(persona))
@@ -681,6 +718,8 @@ public partial class AssistantView : UserControl
             case "browser": _openSidecar("browser"); break;
             case "research": await RunBrowserAgent(BrowserGoal.JobPostings); break;
             case "companies": await RunBrowserAgent(BrowserGoal.Companies); break;
+            case "list": ListCollected(); break;
+            case "draft": await DraftCollected(); break;
             case "settings": _openSidecar("settings"); break;
         }
     }
@@ -734,12 +773,22 @@ public partial class AssistantView : UserControl
             if (goal == BrowserGoal.Companies)
             {
                 _services.CompanyRepo.UpsertAll(result.Companies);
-                AddAssistant($"Collected {result.Companies.Count} company target(s) with the LLM Browser. Open the Queue/Approval panels to start speculative applications, or say “unsolicited” to draft them.");
+                if (result.Companies.Count > 0)
+                {
+                    AddAssistant($"Collected {result.Companies.Count} compan{(result.Companies.Count == 1 ? "y" : "ies")} with the LLM Browser — here they are. Tick the ones to approach and I'll draft speculative applications.");
+                    PresentCompanies(result.Companies);
+                }
+                else AddAssistant("I couldn't pull any companies from there. Try a different site or open the browser and navigate to a company/employer directory, then take over again.");
             }
             else
             {
                 _services.JobRepo.UpsertAll(result.Jobs);
-                AddAssistant($"Collected {result.Jobs.Count} job posting(s) with the LLM Browser. Say “run” to filter and rank them, then I can draft applications.");
+                if (result.Jobs.Count > 0)
+                {
+                    AddAssistant($"Collected {result.Jobs.Count} job posting(s) with the LLM Browser — here they are. Tick the ones you want and I'll draft tailored applications with cover letters.");
+                    PresentJobs(result.Jobs);
+                }
+                else AddAssistant("I couldn't pull any postings from there. Try a different site, or open the browser and navigate to a listing page, then take over again.");
             }
             run.Status = SearchRunStatus.Completed;
             run.CompletedAt = DateTimeOffset.UtcNow;
@@ -763,8 +812,53 @@ public partial class AssistantView : UserControl
         try { return new Uri(url).Host.Replace("www.", ""); } catch { return url; }
     }
 
+    /// <summary>Render the postings/companies already collected (by the browser or a search) as a
+    /// checklist in chat, so the user can review and draft from them.</summary>
+    private void ListCollected()
+    {
+        var jobs = _services.JobRepo.All().ToList();
+        if (jobs.Count > 0)
+        {
+            AddAssistant($"Here {(jobs.Count == 1 ? "is the 1 posting" : $"are the {jobs.Count} postings")} I've collected — tick the ones you want and I'll draft tailored applications:");
+            PresentJobs(jobs);
+            return;
+        }
+        var companies = _services.CompanyRepo.All().ToList();
+        if (companies.Count > 0)
+        {
+            AddAssistant($"Here {(companies.Count == 1 ? "is the 1 company" : $"are the {companies.Count} companies")} I've collected — tick the ones to approach:");
+            PresentCompanies(companies);
+            return;
+        }
+        AddAssistant("I haven't collected any jobs or companies yet. Use the LLM Browser (sidebar → Browser) to gather some, then ask me to list them.");
+    }
+
+    /// <summary>Prepare applications for the collected items. If a checklist is already shown, draft
+    /// the ticked ones; otherwise show the list first and let the user choose (nothing sends without
+    /// approval).</summary>
+    private async Task DraftCollected()
+    {
+        if (_jobChecks.Count == 0 && _companyChecks.Count == 0)
+        {
+            var jobs = _services.JobRepo.Count();
+            var companies = _services.CompanyRepo.Count();
+            if (jobs == 0 && companies == 0)
+            {
+                AddAssistant("Nothing to draft yet — collect some jobs or companies first (sidebar → Browser).");
+                return;
+            }
+            ListCollected();
+            AddAssistant("Tick the ones you want, then click “Draft applications for selected”. Every draft is kept for your review — nothing sends without your approval.");
+            return;
+        }
+        if (_jobChecks.Count > 0) { await GenerateJobDrafts(); return; }
+        if (_companyChecks.Count > 0) { await GenerateCompanyDrafts(); return; }
+    }
+
     private void Interpret(string t)
     {
+        if (t.Contains("list") || t.Contains("show me") || (t.Contains("show") && t.Contains("job"))) { ListCollected(); return; }
+        if (t.Contains("draft") || t.Contains("prepare") || t.Contains("apply") || t.Contains("application")) { _ = DraftCollected(); return; }
         if (t.Contains("unsolicited") || t.Contains("speculative") || t == "2") { StartMode(SearchMode.Unsolicited); return; }
         if (t.Contains("recent") || t.Contains("posting") || t.Contains("job") || t == "1") { StartMode(SearchMode.RecentJobs); return; }
         if (t.Contains("run") || t.Contains("search") || t.Contains("go")) { _ = RunSearch(); return; }
