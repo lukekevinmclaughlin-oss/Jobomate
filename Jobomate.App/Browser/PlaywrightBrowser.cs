@@ -34,16 +34,16 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
 
     private void Set(string status) { Status = status; Changed?.Invoke(); }
 
-    public string UserDataDir => Path.Combine(JobomatePaths.DataDir, "webkit-profile");
+    public string UserDataDir => Path.Combine(JobomatePaths.DataDir, "chrome-profile");
 
-    private static bool WebkitInstalled()
+    private static bool BrowserInstalled(string name)
     {
         try
         {
             var cache = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "Library", "Caches", "ms-playwright");
-            return Directory.Exists(cache) && Directory.GetDirectories(cache, "webkit-*").Length > 0;
+            return Directory.Exists(cache) && Directory.GetDirectories(cache, name + "-*").Length > 0;
         }
         catch { return false; }
     }
@@ -70,22 +70,37 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
             if (Alive) return true;
             _page = null; _ctx = null; // drop any stale/closed session before relaunching
 
-            if (!WebkitInstalled())
-            {
-                Set("Downloading the WebKit browser (first run, ~100 MB)…");
-                await Task.Run(() => Microsoft.Playwright.Program.Main(new[] { "install", "webkit" }), ct)
-                    .ConfigureAwait(false);
-            }
-
             Set("Launching the LLM Browser…");
             _pw ??= await Playwright.CreateAsync().ConfigureAwait(false);
             Directory.CreateDirectory(UserDataDir);
-            var ctx = await _pw.Webkit.LaunchPersistentContextAsync(UserDataDir,
-                new BrowserTypeLaunchPersistentContextOptions
+
+            // Drive the user's REAL Google Chrome (channel="chrome") with the automation signals
+            // stripped, so Google / LinkedIn allow them to sign in normally. Google blocks Playwright's
+            // WebKit and bundled Chromium as "this browser may not be secure"; real Chrome is accepted.
+            // Fall back to bundled Chromium only if Chrome isn't installed.
+            var opts = new BrowserTypeLaunchPersistentContextOptions
+            {
+                Headless = false,
+                Channel = "chrome",
+                Args = new[] { "--disable-blink-features=AutomationControlled", "--no-first-run", "--no-default-browser-check" },
+                IgnoreDefaultArgs = new[] { "--enable-automation" },
+                ViewportSize = new ViewportSize { Width = 1280, Height = 900 },
+            };
+            IBrowserContext ctx;
+            try
+            {
+                ctx = await _pw.Chromium.LaunchPersistentContextAsync(UserDataDir, opts).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (!BrowserInstalled("chromium"))
                 {
-                    Headless = false,
-                    ViewportSize = new ViewportSize { Width = 1280, Height = 900 },
-                }).ConfigureAwait(false);
+                    Set("Downloading the browser (first run)…");
+                    await Task.Run(() => Microsoft.Playwright.Program.Main(new[] { "install", "chromium" }), ct).ConfigureAwait(false);
+                }
+                opts.Channel = null;
+                ctx = await _pw.Chromium.LaunchPersistentContextAsync(UserDataDir, opts).ConfigureAwait(false);
+            }
             // If the user closes the browser window, drop our references so the next action relaunches.
             ctx.Close += (_, __) => { _ctx = null; _page = null; NeedsUserReason = null; Set("Browser closed"); };
             var page = ctx.Pages.Count > 0 ? ctx.Pages[0] : await ctx.NewPageAsync().ConfigureAwait(false);
