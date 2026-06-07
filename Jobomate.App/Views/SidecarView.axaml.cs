@@ -254,7 +254,7 @@ public partial class SidecarView : UserControl
         sp.Children.Add(new TextBlock { Text = "LLM Browser", Foreground = TextBrush, FontWeight = FontWeight.SemiBold, FontSize = 14 });
         sp.Children.Add(new TextBlock
         {
-            Text = "Jobomate drives your own Google Chrome (no extension to install). Open a site, log in or solve any CAPTCHA yourself, then let your connected model take over to collect job postings — or companies for unsolicited applications. It never bypasses a login or CAPTCHA.",
+            Text = "The Jobomate LM Browser — the app's own built-in browser (no extension to install). Open a site, log in or solve any CAPTCHA yourself, then let your connected model take over to collect job postings — or companies for unsolicited applications. It never bypasses a login or CAPTCHA.",
             Foreground = MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap,
         });
 

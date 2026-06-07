@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -57,6 +59,78 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
         catch { return false; }
     }
 
+    private string? _brandedExe;
+
+    /// <summary>One-time on macOS: make a Jobomate-owned copy of the bundled Chromium, rebranded
+    /// "Jobomate LM Browser" with the Jobomate icon, and return its executable path. So the browser
+    /// the user sees is genuinely the software's own — not "Google Chrome for Testing". Returns null
+    /// (use the default browser) on non-macOS or any failure.</summary>
+    private async Task<string?> EnsureBrandedBrowserAsync()
+    {
+        if (_brandedExe is not null) return _brandedExe;
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX) || _pw is null) return null;
+        try
+        {
+            var srcExe = _pw.Chromium.ExecutablePath;
+            if (string.IsNullOrEmpty(srcExe) || !File.Exists(srcExe)) return null;
+            var binName = Path.GetFileName(srcExe);                                   // "Google Chrome for Testing"
+            var srcApp = Directory.GetParent(srcExe)?.Parent?.Parent?.FullName;        // …/<browser>.app
+            if (srcApp is null || !srcApp.EndsWith(".app", StringComparison.OrdinalIgnoreCase)) return null;
+
+            var brandedApp = Path.Combine(JobomatePaths.DataDir, "Jobomate LM Browser.app");
+            var brandedExe = Path.Combine(brandedApp, "Contents", "MacOS", binName);
+            var marker = Path.Combine(brandedApp, "Contents", ".jobomate-src");
+
+            // Reuse the existing branded copy unless the underlying Playwright browser changed.
+            if (File.Exists(brandedExe) && File.Exists(marker) && (await File.ReadAllTextAsync(marker).ConfigureAwait(false)).Trim() == srcApp)
+            {
+                _brandedExe = brandedExe;
+                return brandedExe;
+            }
+
+            Set("Preparing the Jobomate LM Browser…");
+            if (Directory.Exists(brandedApp)) Directory.Delete(brandedApp, true);
+            await Run("cp", "-R", srcApp, brandedApp).ConfigureAwait(false);
+
+            var plist = Path.Combine(brandedApp, "Contents", "Info.plist");
+            await Run("/usr/libexec/PlistBuddy", "-c", "Set :CFBundleName Jobomate LM Browser", plist).ConfigureAwait(false);
+            await Run("/usr/libexec/PlistBuddy", "-c", "Set :CFBundleDisplayName Jobomate LM Browser", plist).ConfigureAwait(false);
+
+            var icns = FindJobomateIcns();
+            if (icns is not null)
+                try { File.Copy(icns, Path.Combine(brandedApp, "Contents", "Resources", "app.icns"), true); } catch { }
+
+            await Run("codesign", "--force", "--deep", "--sign", "-", brandedApp).ConfigureAwait(false);
+            try { await File.WriteAllTextAsync(marker, srcApp).ConfigureAwait(false); } catch { }
+
+            if (File.Exists(brandedExe)) { _brandedExe = brandedExe; return brandedExe; }
+            return null;
+        }
+        catch { return null; }
+    }
+
+    private static string? FindJobomateIcns()
+    {
+        foreach (var p in new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "AppIcon.icns"),
+            Path.Combine(AppContext.BaseDirectory, "..", "Resources", "AppIcon.icns"),
+            Path.Combine(AppContext.BaseDirectory, "Resources", "AppIcon.icns"),
+        })
+        {
+            try { if (File.Exists(p)) return Path.GetFullPath(p); } catch { }
+        }
+        return null;
+    }
+
+    private static async Task Run(string file, params string[] args)
+    {
+        var psi = new ProcessStartInfo(file) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi);
+        if (p is not null) await p.WaitForExitAsync().ConfigureAwait(false);
+    }
+
     /// <summary>True while we have a live context with an open page (the user hasn't closed it).</summary>
     private bool Alive => _ctx is not null && _page is not null && !_page.IsClosed;
 
@@ -99,6 +173,10 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
                 IgnoreDefaultArgs = new[] { "--enable-automation" },
                 ViewportSize = new ViewportSize { Width = 1280, Height = 900 },
             };
+            // Launch a Jobomate-branded copy ("Jobomate LM Browser", Jobomate icon) when available.
+            var brandedExe = await EnsureBrandedBrowserAsync().ConfigureAwait(false);
+            if (brandedExe is not null) opts.ExecutablePath = brandedExe;
+
             var ctx = await _pw.Chromium.LaunchPersistentContextAsync(UserDataDir, opts).ConfigureAwait(false);
             try { await ctx.AddInitScriptAsync(StealthJs).ConfigureAwait(false); } catch { }
             // If the user closes the browser window, drop our references so the next action relaunches.

@@ -30,5 +30,9 @@
     <AvaloniaResource Include="Resources/JobomateLogo.png" />
   </ItemGroup>
 
+  <!-- Ship the app icon next to the binary so the LLM Browser can rebrand its bundled browser. -->
+  <ItemGroup>
+    <None Include="Resources/AppIcon.icns" CopyToOutputDirectory="PreserveNewest" Link="AppIcon.icns" />
+  </ItemGroup>
 
 </Project>

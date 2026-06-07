@@ -32,11 +32,11 @@
           </StackPanel>
         </Button>
 
-        <Button Classes="codex-card" Click="BentoBrowser_Click" ToolTip.Tip="Opens your real Google Chrome; you log in, the assistant takes over to collect jobs">
+        <Button Classes="codex-card" Click="BentoBrowser_Click" ToolTip.Tip="Opens the Jobomate LM Browser; you log in, the assistant takes over to collect jobs">
           <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
             <Path Width="24" Height="24" Stretch="Uniform" Fill="#94A3B8" Data="{DynamicResource IconGlobe}" />
             <TextBlock Text="LLM Browser" FontSize="15" FontWeight="SemiBold" Foreground="#F8FAFC" HorizontalAlignment="Center" />
-            <TextBlock Text="Drives your real Chrome — you log in, the assistant takes over" FontSize="12.5" Foreground="#A7B4C7" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
+            <TextBlock Text="Jobomate's own browser — you log in, the assistant takes over" FontSize="12.5" Foreground="#A7B4C7" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
           </StackPanel>
         </Button>
       </StackPanel>
