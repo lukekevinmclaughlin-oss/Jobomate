@@ -23,16 +23,10 @@
     <PackageReference Include="QuestPDF" Version="2025.12.4" />
     <PackageReference Include="AngleSharp" Version="1.4.0" />
     <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
-    <PackageReference Include="Microsoft.Playwright" Version="1.60.0" />
   </ItemGroup>
 
   <ItemGroup>
     <AvaloniaResource Include="Resources/JobomateLogo.png" />
-  </ItemGroup>
-
-  <!-- Ship the app icon next to the binary so the LLM Browser can rebrand its bundled browser. -->
-  <ItemGroup>
-    <None Include="Resources/AppIcon.icns" CopyToOutputDirectory="PreserveNewest" Link="AppIcon.icns" />
   </ItemGroup>
 
 </Project>

@@ -868,7 +868,7 @@ public partial class AssistantView : UserControl
     public void StartBrowserRun(BrowserGoal goal, string? startUrl) => _ = RunBrowserAgent(goal, startUrl);
 
     /// <summary>Drive the built-in LLM Browser to collect job postings or companies. The connected
-    /// model navigates a real WebKit browser; the user logs in / clears CAPTCHAs in that window.</summary>
+    /// model drives the LM Browser; the user logs in / clears CAPTCHAs in that window.</summary>
     private async Task RunBrowserAgent(BrowserGoal goal, string? startUrlOverride = null)
     {
         if (_browsing) return;

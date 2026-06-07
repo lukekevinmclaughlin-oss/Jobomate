@@ -21,6 +21,15 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp -R "$PUB/." "$APP/Contents/MacOS/"
 cp "$ROOT/Jobomate.App/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
+# Bundle the LM_Browser desktop app (Jobomate's built-in LLM Browser) into Resources, if present.
+LM_BROWSER="$ROOT/../LLM_Browser/release/mac-arm64/LM_Browser.app"
+if [ -d "$LM_BROWSER" ]; then
+  echo "==> Bundling LM_Browser…"
+  cp -R "$LM_BROWSER" "$APP/Contents/Resources/LM_Browser.app"
+else
+  echo "==> (LM_Browser not found at $LM_BROWSER — the app will fall back to its dev location at runtime)"
+fi
+
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

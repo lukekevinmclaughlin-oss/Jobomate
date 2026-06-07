@@ -38,9 +38,9 @@ public sealed class JobomateServices
     public void SetStatus(string status) { Status = status; StatusChanged?.Invoke(status); }
     public LocalLlmRuntime LocalRuntime { get; } = new();
     public ProfileService Profiles { get; }
-    /// <summary>The built-in LLM Browser (a real WebKit browser the connected LLM drives). Replaces
+    /// <summary>The built-in LLM Browser (the LM_Browser desktop app the connected LLM drives). Replaces
     /// the old Chrome extension entirely — no install, no external Chrome.</summary>
-    public Jobomate.Browser.PlaywrightBrowser Browser { get; } = new();
+    public Jobomate.Browser.LmBrowser Browser { get; } = new();
     public JobSearchService JobSearch { get; }
     public FilterPipeline Filters { get; } = new();
     public ApprovalService Approval { get; }

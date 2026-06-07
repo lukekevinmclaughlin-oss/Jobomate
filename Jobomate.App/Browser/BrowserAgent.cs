@@ -27,7 +27,7 @@ public sealed class BrowserRunResult
 
 /// <summary>
 /// The provider-agnostic browser-automation agent. Given a starting URL and a goal (collect job
-/// postings, or collect companies for unsolicited applications), it drives the <see cref="PlaywrightBrowser"/>
+/// postings, or collect companies for unsolicited applications), it drives the <see cref="LmBrowser"/>
 /// in a loop: observe the page → ask the connected LLM for the next action → act / extract → repeat,
 /// until it has enough or runs out of steps. It uses <see cref="LlmClient.CompleteAsync"/>, so it
 /// works with any of the six LLM connection types — exactly like the chat. On any login or CAPTCHA
@@ -37,7 +37,7 @@ public sealed class BrowserAgent
 {
     private readonly LlmClient _llm;
     private readonly Func<LlmConnectionConfig> _config;
-    private readonly PlaywrightBrowser _browser;
+    private readonly LmBrowser _browser;
     private readonly SearchPreferences _prefs;
     private readonly CandidateProfile _profile;
     private readonly Action<string> _onProgress;
@@ -46,7 +46,7 @@ public sealed class BrowserAgent
     public BrowserAgent(
         LlmClient llm,
         Func<LlmConnectionConfig> config,
-        PlaywrightBrowser browser,
+        LmBrowser browser,
         SearchPreferences prefs,
         CandidateProfile profile,
         Action<string> onProgress,
@@ -167,7 +167,7 @@ public sealed class BrowserAgent
             : $"The user is {_profile.FullName}{(string.IsNullOrWhiteSpace(_profile.Headline) ? "" : " — " + _profile.Headline)}.";
 
         var sb = new StringBuilder();
-        sb.Append("You are operating a real WebKit web browser to ").Append(goalText).Append(" for the user. ");
+        sb.Append("You are operating a real web browser (the Jobomate LM Browser) to ").Append(goalText).Append(" for the user. ");
         sb.Append("The user is logged in where needed and handles any CAPTCHA. ").Append(who).Append(' ');
         sb.Append("Each turn you receive a JSON snapshot of the CURRENT page with: url, title, a text digest, ");
         sb.Append("`links` (indexed clickable elements: {i,t,h}) and `inputs` (indexed text fields: {i,ph}). ");
@@ -291,7 +291,7 @@ public sealed class BrowserAgent
                     Website = S("website"),
                     CareersUrl = S("website"),
                     Location = S("location"),
-                    Notes = "Collected by the LLM Browser (your logged-in WebKit session).",
+                    Notes = "Collected by the LLM Browser (your logged-in LM Browser session).",
                     SearchRunId = runId,
                 });
             }
@@ -314,7 +314,7 @@ public sealed class BrowserAgent
                     ApplicationMethod = string.IsNullOrWhiteSpace(email) ? ApplicationMethod.Portal : ApplicationMethod.Email,
                     PortalUrl = string.IsNullOrWhiteSpace(email) ? url : "",
                     ConfidenceScore = 0.6,
-                    ExtractionNotes = "Collected by the LLM Browser (your logged-in WebKit session).",
+                    ExtractionNotes = "Collected by the LLM Browser (your logged-in LM Browser session).",
                     SearchRunId = runId,
                 };
                 result.Jobs.Add(JobNormalization.Finalize(job));
