@@ -237,6 +237,65 @@ public sealed class JobomateEngine
         return new { id = d.Id, company = d.Company, role = d.RoleTitle, status = d.Status.ToString(), to = email?.ToAddress ?? "", subject = email?.Subject ?? "", body = email?.Body ?? "" };
     }).ToList();
 
+    // ---------------------------------------------------------------- repos (manage / write) ----
+
+    /// <summary>Edit a collected posting in place, or toggle whether it's included in drafting.</summary>
+    public object UpdateJob(string id, string? title, string? company, string? location, string? email, string? url, bool? included)
+    {
+        var j = Services.JobRepo.Get(id);
+        if (j is null) return new { error = "job not found" };
+        if (title is not null) j.Title = title;
+        if (company is not null) j.Company = company;
+        if (location is not null) j.Location = location;
+        if (email is not null) j.ContactEmail = email;
+        if (url is not null) j.SourceUrl = url;
+        if (included.HasValue) j.Included = included.Value;
+        Services.JobRepo.Upsert(j);
+        return new { ok = true };
+    }
+
+    public object DeleteJob(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return new { error = "id required" };
+        Services.JobRepo.Delete(id);
+        return new { ok = true };
+    }
+
+    /// <summary>Edit a draft's role/company/status and the associated email's recipient/subject/body.</summary>
+    public object UpdateDraft(string id, string? role, string? company, string? to, string? subject, string? bodyText, string? status)
+    {
+        var d = Services.DraftRepo.Get(id);
+        if (d is null) return new { error = "draft not found" };
+        if (role is not null) d.RoleTitle = role;
+        if (company is not null) d.Company = company;
+        if (status is not null && Enum.TryParse<DraftStatus>(status, true, out var st)) d.Status = st;
+        var emailEdited = to is not null || subject is not null || bodyText is not null;
+        if (emailEdited) d.EditedByUser = true;
+        Services.DraftRepo.Upsert(d);
+
+        if (emailEdited)
+        {
+            var email = Services.EmailRepo.All().FirstOrDefault(e => e.ApplicationDraftId == d.Id);
+            if (email is not null)
+            {
+                if (to is not null) email.ToAddress = to;
+                if (subject is not null) email.Subject = subject;
+                if (bodyText is not null) email.Body = bodyText;
+                Services.EmailRepo.Upsert(email);
+            }
+        }
+        return new { ok = true };
+    }
+
+    public object DeleteDraft(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return new { error = "id required" };
+        var email = Services.EmailRepo.All().FirstOrDefault(e => e.ApplicationDraftId == id);
+        if (email is not null) Services.EmailRepo.Delete(email.Id);
+        Services.DraftRepo.Delete(id);
+        return new { ok = true };
+    }
+
     // ---------------------------------------------------------------- drafting ----
 
     public async Task<object> DraftAsync(string kind, string[] ids, CancellationToken ct = default)

@@ -77,6 +77,9 @@ public static class EngineServer
         string[] Arr(string k) => body.ValueKind == JsonValueKind.Object && body.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToArray() : Array.Empty<string>();
         bool B(string k) => body.ValueKind == JsonValueKind.Object && body.TryGetProperty(k, out var v) && (v.ValueKind == JsonValueKind.True || (v.ValueKind == JsonValueKind.String && v.GetString() == "true"));
+        // Nullable getters for partial updates: absent -> null (field left unchanged).
+        string? SN(string k) => body.ValueKind == JsonValueKind.Object && body.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        bool? BN(string k) => body.ValueKind == JsonValueKind.Object && body.TryGetProperty(k, out var v) ? (v.ValueKind == JsonValueKind.True ? true : v.ValueKind == JsonValueKind.False ? false : (bool?)null) : null;
 
         switch (path)
         {
@@ -110,6 +113,12 @@ public static class EngineServer
             case "/api/jobs": return e.Jobs();
             case "/api/companies": return e.Companies();
             case "/api/drafts": return e.Drafts();
+
+            // ---- repos (edit / delete / manage) ----
+            case "/api/jobs/update": return e.UpdateJob(S("id"), SN("title"), SN("company"), SN("location"), SN("email"), SN("url"), BN("included"));
+            case "/api/jobs/delete": return e.DeleteJob(S("id"));
+            case "/api/drafts/update": return e.UpdateDraft(S("id"), SN("role"), SN("company"), SN("to"), SN("subject"), SN("body"), SN("status"));
+            case "/api/drafts/delete": return e.DeleteDraft(S("id"));
 
             // ---- drafting / approval / send ----
             case "/api/draft": return await e.DraftAsync(S("kind"), Arr("ids")).ConfigureAwait(false);
