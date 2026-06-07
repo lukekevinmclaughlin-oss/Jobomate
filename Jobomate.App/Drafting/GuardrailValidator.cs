@@ -70,9 +70,32 @@ public static class GuardrailValidator
         return result;
     }
 
+    /// <summary>
+    /// Replace leftover template placeholders the model sometimes leaves in (e.g. "[Your Name]",
+    /// "[Position]") so an application never goes out with an unfilled bracket. Name placeholders
+    /// become the candidate's name; date placeholders are dropped; any other bracketed stub is removed.
+    /// </summary>
+    public static string FillPlaceholders(string? text, CandidateProfile profile)
+    {
+        if (string.IsNullOrEmpty(text)) return text ?? "";
+        var name = (profile.FullName ?? "").Trim();
+        var result = text!;
+        // Name-style placeholders → the candidate's name (or just drop the bracket if we have no name).
+        result = Regex.Replace(result, @"\[\s*(your\s+full\s+name|your\s+name|full\s+name|candidate\s+name|applicant\s+name|sender\s+name|name)\s*\]",
+            name, RegexOptions.IgnoreCase);
+        // Anything else still in square brackets (e.g. "[Position]", "[Company]", "[Date]") → remove.
+        result = Regex.Replace(result, @"\[[^\]\r\n]{0,60}\]", "");
+        // Tidy the gaps the removals leave behind.
+        result = Regex.Replace(result, @"[ \t]{2,}", " ");
+        result = Regex.Replace(result, @"\n{3,}", "\n\n");
+        return result.Trim();
+    }
+
     /// <summary>Apply every guard (legacy, no profile).</summary>
     public static string Clean(string? text) => EnforceGermanLevel(StripForbidden(text));
 
-    /// <summary>Apply every guard, capping each profile language at its stated level.</summary>
-    public static string Clean(string? text, CandidateProfile profile) => EnforceLanguageLevels(StripForbidden(text), profile);
+    /// <summary>Apply every guard, capping each profile language at its stated level and filling
+    /// any leftover template placeholders.</summary>
+    public static string Clean(string? text, CandidateProfile profile) =>
+        FillPlaceholders(EnforceLanguageLevels(StripForbidden(text), profile), profile);
 }

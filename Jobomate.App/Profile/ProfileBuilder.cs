@@ -33,8 +33,30 @@ public static class ProfileBuilder
 
         var profile = CandidateProfileDefaults.Known();
         profile.FromFallback = false;
+        if (GuessName(clean) is { Length: > 0 } name) profile.FullName = name;
         profile.Summary = ExcerptSummary(clean) is { Length: > 0 } excerpt ? excerpt : profile.Summary;
         return EnforceGuards(profile);
+    }
+
+    /// <summary>Heuristic: a CV usually opens with the candidate's name on its own line — 2-4
+    /// words, letters only (allowing . - '), no digits/email/role keywords.</summary>
+    private static string? GuessName(string cvText)
+    {
+        var roleWords = new[] { "curriculum", "vitae", "resume", "cv", "profile", "summary", "engineer", "developer", "manager", "designer", "analyst", "consultant", "director", "specialist", "lead", "senior", "junior" };
+        foreach (var raw in cvText.Split('\n').Take(8))
+        {
+            var line = raw.Trim();
+            if (line.Length is < 4 or > 48) continue;
+            if (line.Any(char.IsDigit) || line.Contains('@') || line.Contains(':') || line.Contains(',')) continue;
+            var words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length is < 2 or > 4) continue;
+            if (!words.All(w => w.All(c => char.IsLetter(c) || c is '.' or '-' or '\''))) continue;
+            var lower = line.ToLowerInvariant();
+            if (roleWords.Any(lower.Contains)) continue;
+            // Title-case (handles ALL-CAPS names like "JORDAN AVERY").
+            return string.Join(' ', words.Select(w => w.Length == 0 ? w : char.ToUpper(w[0]) + w[1..].ToLowerInvariant()));
+        }
+        return null;
     }
 
     /// <summary>

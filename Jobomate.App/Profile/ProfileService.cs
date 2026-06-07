@@ -77,8 +77,9 @@ public sealed class ProfileService
         CandidateProfile seed, string cvText, LlmClient llm, LlmConnectionConfig cfg, CancellationToken ct)
     {
         var prompt =
-            "Extract a concise professional summary (2-3 sentences), a short headline, and up to 12 key skills " +
-            "from this CV. Return ONLY minified JSON: {\"summary\":\"...\",\"headline\":\"...\",\"skills\":[\"...\"]}. " +
+            "Extract the candidate's full name and location, a concise professional summary (2-3 sentences), a short " +
+            "headline, and up to 12 key skills from this CV. " +
+            "Return ONLY minified JSON: {\"fullName\":\"...\",\"location\":\"...\",\"summary\":\"...\",\"headline\":\"...\",\"skills\":[\"...\"]}. " +
             "Use only facts present in the CV. Never mention layoffs, health, therapy, or any personal circumstances.\n\nCV:\n" +
             Truncate(cvText, 8000);
 
@@ -99,6 +100,10 @@ public sealed class ProfileService
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
+            if (root.TryGetProperty("fullName", out var fn) && fn.GetString() is { Length: > 0 } fullName)
+                seed.FullName = fullName.Trim();
+            if (string.IsNullOrWhiteSpace(seed.Location) && root.TryGetProperty("location", out var lo) && lo.GetString() is { Length: > 0 } location)
+                seed.Location = location.Trim();
             if (root.TryGetProperty("summary", out var s) && s.GetString() is { Length: > 0 } summary)
                 seed.Summary = summary;
             if (root.TryGetProperty("headline", out var h) && h.GetString() is { Length: > 0 } headline)
