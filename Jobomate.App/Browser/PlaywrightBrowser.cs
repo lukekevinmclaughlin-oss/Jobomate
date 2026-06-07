@@ -128,6 +128,30 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
         return false;
     }
 
+    /// <summary>Create a draft in the user's Gmail by navigating to Gmail's compose URL (which Gmail
+    /// auto-saves as a draft). Requires the user to already be signed into Gmail in this browser.</summary>
+    public async Task<bool> ComposeGmailDraftAsync(string to, string subject, string body, CancellationToken ct = default)
+    {
+        var url = "https://mail.google.com/mail/?view=cm&fs=1&tf=1"
+                + "&to=" + Uri.EscapeDataString(to ?? "")
+                + "&su=" + Uri.EscapeDataString(subject ?? "")
+                + "&body=" + Uri.EscapeDataString(body ?? "");
+        if (!await OpenAsync(url, ct).ConfigureAwait(false)) return false;
+
+        // Give Gmail a moment to register and auto-save the draft before we navigate away.
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try { if (_page is not null) await _page.WaitForTimeoutAsync(2800).ConfigureAwait(false); }
+        catch { }
+        finally { _gate.Release(); }
+        return true;
+    }
+
+    /// <summary>Best-effort check: are we sitting on a Google sign-in page (i.e. not logged in yet)?</summary>
+    public bool OnGoogleSignIn =>
+        CurrentUrl.Contains("accounts.google.com", StringComparison.OrdinalIgnoreCase)
+        || CurrentUrl.Contains("ServiceLogin", StringComparison.OrdinalIgnoreCase)
+        || CurrentUrl.Contains("signin", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Return a compact JSON snapshot of the current page for the LLM to reason over.</summary>
     public async Task<string> ObserveAsync(CancellationToken ct = default)
     {

@@ -17,6 +17,7 @@ using Jobomate.Browser;
 using Jobomate.Contracts;
 using Jobomate.Drafting;
 using Jobomate.Llm;
+using Jobomate.Scheduling;
 using Jobomate.Sources;
 
 namespace Jobomate.Views;
@@ -54,6 +55,8 @@ public partial class AssistantView : UserControl
     private DispatcherTimer? _timer;
     private bool _busy;
     private bool _browsing;
+    private SendRunner? _sendRunner;
+    private DispatcherTimer? _autoSendTimer;
 
     /// <summary>Raised when threads/runs change so the sidebar can refresh.</summary>
     public event Action? ThreadsChanged;
@@ -514,6 +517,7 @@ public partial class AssistantView : UserControl
         AddAssistant("Here are the drafts. Approve the ones you're happy with in the Approval wall — nothing sends until you approve, and it stays dry-run until you connect a real email account.");
         RenderDraftCards();
         SetActions(
+            ("Prepare emails in my mailbox", () => _ = PrepareEmails()),
             ("Open approval wall", () => _openSidecar("approval")),
             ("Approve all", ApproveAll),
             ("Schedule approved", ScheduleApproved),
@@ -584,6 +588,134 @@ public partial class AssistantView : UserControl
     {
         AddUser("Open the LLM Browser.");
         _openSidecar("browser");
+    }
+
+    // ===== Email preparation + send flow (LLM Browser → your real Gmail) =====
+
+    /// <summary>Open Gmail in the LLM Browser (user logs in), then offer to drop the application
+    /// emails into Gmail as drafts (manual send) or auto-send them gradually on an interval.</summary>
+    private async Task PrepareEmails()
+    {
+        var emails = _services.EmailRepo.All().Where(e => !string.IsNullOrWhiteSpace(e.ToAddress)).ToList();
+        if (emails.Count == 0)
+        {
+            AddAssistant("I don't have any application emails with a recipient yet. Tick postings or companies that have a contact email and click “Draft applications for selected”, then ask me to prepare the emails.");
+            return;
+        }
+
+        _openSidecar("browser");
+        AddAssistant($"I've got {emails.Count} application email(s) ready — built only from your CV. I'll open Gmail in the LLM Browser; please log into your Google account there, then choose what to do below.");
+        try { await _services.Browser.OpenAsync("https://mail.google.com/"); }
+        catch (Exception ex) { AddAssistant("Couldn't open Gmail: " + ex.Message); return; }
+        ShowEmailOptions(emails.Count);
+    }
+
+    private void ShowEmailOptions(int count)
+    {
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(Header($"{count} application email(s) — how should I handle them?"));
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Log into Gmail in the browser window first. Then I can either put them into your Gmail Drafts for you to send yourself, or auto-send them gradually on the interval you set (needs a connected email account so I can send for you — Settings → Email).",
+            Foreground = MutedBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+        });
+
+        var intervalRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        intervalRow.Children.Add(new TextBlock { Text = "Minutes between sends:", Foreground = TextBrush, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center });
+        var intervalBox = new TextBox { Text = "10", Width = 70, FontSize = 12.5 };
+        intervalRow.Children.Add(intervalBox);
+        panel.Children.Add(intervalRow);
+
+        var row = new WrapPanel();
+        row.Children.Add(MakeBtn("Create drafts in my Gmail", "accent", () => _ = CreateGmailDrafts()));
+        row.Children.Add(MakeBtn("Auto-send on this interval", "ghost", () => StartAutoSend(ParseInterval(intervalBox.Text))));
+        panel.Children.Add(row);
+        AddCard(panel);
+    }
+
+    private static int ParseInterval(string? s) => int.TryParse((s ?? "").Trim(), out var v) && v > 0 ? v : 10;
+
+    /// <summary>Drop each application email into the user's Gmail as a draft (they send manually).</summary>
+    private async Task CreateGmailDrafts()
+    {
+        var emails = _services.EmailRepo.All().Where(e => !string.IsNullOrWhiteSpace(e.ToAddress)).ToList();
+        if (emails.Count == 0) { AddAssistant("No application emails to create yet."); return; }
+        if (!_services.Browser.IsRunning) { AddAssistant("The browser isn't open — say “prepare emails” to open Gmail first."); return; }
+        if (_services.Browser.OnGoogleSignIn)
+        {
+            AddAssistant("You're still on the Google sign-in page. Finish logging into Gmail in the browser window, then click “Create drafts in my Gmail” again.");
+            return;
+        }
+
+        AddUser("Put the application emails in my Gmail drafts.");
+        AddAssistant($"Creating {emails.Count} draft(s) in your Gmail…");
+        _services.SetStatus("Creating Gmail drafts…");
+        var ok = 0;
+        foreach (var e in emails)
+        {
+            try { if (await _services.Browser.ComposeGmailDraftAsync(e.ToAddress, e.Subject, e.Body)) ok++; }
+            catch { }
+            _services.SetStatus($"Gmail drafts: {ok}/{emails.Count}");
+        }
+        _services.SetStatus("");
+        AddAssistant($"Created {ok} of {emails.Count} draft(s) in your Gmail Drafts folder. Open Gmail to review and send them whenever you like — I didn't send anything.");
+    }
+
+    /// <summary>Auto-send the applications gradually through a connected email account.</summary>
+    private void StartAutoSend(int intervalMin)
+    {
+        var sender = _services.BuildEmailSender();
+        if (sender.IsDryRun)
+        {
+            AddAssistant($"To auto-send I need a connected email account to send through. Open Settings → Email account and connect Gmail (or SMTP); then I can auto-send every {intervalMin} min. Until then, “Create drafts in my Gmail” lets you send them yourself.");
+            _openSidecar("settings");
+            return;
+        }
+        AddAssistant($"Ready to auto-send through {sender.Name}: one application about every {intervalMin} minute(s), up to {_services.RateLimit.MaxPerDay}/day, pausing during quiet hours. Every email uses only your CV facts. Confirm to start — you can pause anytime in the Queue.");
+        SetActions(
+            ("Confirm auto-send", () => ConfirmAutoSend(intervalMin)),
+            ("Cancel", () => AddAssistant("Okay — nothing scheduled. You can still create Gmail drafts to send manually.")));
+    }
+
+    private void ConfirmAutoSend(int intervalMin)
+    {
+        var cfg = _services.RateLimit;
+        cfg.MinGap = TimeSpan.FromMinutes(Math.Max(1, intervalMin));
+        cfg.JitterMin = TimeSpan.Zero;
+        cfg.JitterMax = TimeSpan.FromSeconds(45);
+
+        var ids = _services.DraftRepo.All().Where(d => d.Status == DraftStatus.Draft).Select(d => d.Id).ToList();
+        _services.Approval.ApproveBatch(ids);
+        var queue = _services.BuildQueueService();
+        var queued = _services.DraftRepo.All().Where(d => d.Status == DraftStatus.Approved).Count(d => queue.Enqueue(d.Id) is not null);
+
+        StartSendTimer();
+        AddUser("Auto-send the applications.");
+        AddAssistant($"Auto-send started — {queued} application(s) queued, about {intervalMin} min apart. I'll send them gradually through your account; watch progress (and pause) in the Queue.");
+        _openSidecar("queue");
+    }
+
+    private void StartSendTimer()
+    {
+        _sendRunner ??= _services.BuildSendRunner();
+        if (_autoSendTimer is null)
+        {
+            _autoSendTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            _autoSendTimer.Tick += async (_, _) => await AutoSendTick();
+        }
+        _autoSendTimer.Start();
+    }
+
+    private async Task AutoSendTick()
+    {
+        if (_sendRunner is null) return;
+        try { await _sendRunner.RunDueAsync(); } catch { }
+        var pending = _services.QueueRepo.All().Count(i => i.Status is SendStatus.Pending or SendStatus.Sending);
+        if (pending == 0)
+        {
+            _autoSendTimer?.Stop();
+            AddAssistant("Auto-send finished — every queued application has been processed. See them in the Queue / tracker.");
+        }
     }
 
     // ----- input -----
@@ -669,6 +801,7 @@ public partial class AssistantView : UserControl
             "[[ACTION:run]] — run the current search\n" +
             "[[ACTION:list]] — show the job postings / companies ALREADY collected, as a checklist in chat\n" +
             "[[ACTION:draft]] — draft tailored applications for the collected/selected postings (you review before anything sends)\n" +
+            "[[ACTION:prepare]] — open Gmail in the LLM Browser and put the application emails in the user's mailbox, then offer auto-send (on an interval) or manual send\n" +
             "[[ACTION:approve]] — approve all pending drafts\n" +
             "[[ACTION:schedule]] — schedule approved applications to send gradually\n" +
             "[[ACTION:send]] — send due items (dry-run unless a real email account is connected)\n" +
@@ -679,6 +812,7 @@ public partial class AssistantView : UserControl
             "Only add a directive when the user actually asks for that action; otherwise just reply normally with no directive. " +
             "If the user asks to see/list the jobs you've already collected, do NOT start a new browser search — append [[ACTION:list]]. " +
             "If they ask to apply or prepare applications, append [[ACTION:draft]]. " +
+            "If they ask to put the emails in their mailbox/Gmail, send them, or set up auto-send, append [[ACTION:prepare]]. " +
             "When drafting applications, never invent the user's skills, employers, titles, or experience. Keep replies concise." +
             collected;
 
@@ -720,6 +854,7 @@ public partial class AssistantView : UserControl
             case "companies": await RunBrowserAgent(BrowserGoal.Companies); break;
             case "list": ListCollected(); break;
             case "draft": await DraftCollected(); break;
+            case "prepare": await PrepareEmails(); break;
             case "settings": _openSidecar("settings"); break;
         }
     }
@@ -858,6 +993,7 @@ public partial class AssistantView : UserControl
     private void Interpret(string t)
     {
         if (t.Contains("list") || t.Contains("show me") || (t.Contains("show") && t.Contains("job"))) { ListCollected(); return; }
+        if (t.Contains("mailbox") || t.Contains("gmail") || t.Contains("auto-send") || t.Contains("autosend") || (t.Contains("prepare") && t.Contains("email"))) { _ = PrepareEmails(); return; }
         if (t.Contains("draft") || t.Contains("prepare") || t.Contains("apply") || t.Contains("application")) { _ = DraftCollected(); return; }
         if (t.Contains("unsolicited") || t.Contains("speculative") || t == "2") { StartMode(SearchMode.Unsolicited); return; }
         if (t.Contains("recent") || t.Contains("posting") || t.Contains("job") || t == "1") { StartMode(SearchMode.RecentJobs); return; }
