@@ -48,14 +48,27 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
         catch { return false; }
     }
 
+    /// <summary>True while we have a live context with an open page (the user hasn't closed it).</summary>
+    private bool Alive => _ctx is not null && _page is not null && !_page.IsClosed;
+
+    /// <summary>A Playwright error meaning the page/context/browser was closed (e.g. the user closed
+    /// the window) — recover by relaunching.</summary>
+    private static bool IsClosed(Exception ex) =>
+        ex.Message.Contains("closed", StringComparison.OrdinalIgnoreCase) ||
+        ex.Message.Contains("Target page", StringComparison.OrdinalIgnoreCase) ||
+        ex.Message.Contains("crash", StringComparison.OrdinalIgnoreCase);
+
+    private void ResetIfClosed(Exception ex) { if (IsClosed(ex)) { _ctx = null; _page = null; } }
+
     /// <summary>Installs WebKit on first use (~100 MB, one-time) and launches the headed browser.
-    /// Idempotent — safe to call before every operation.</summary>
+    /// Idempotent — relaunches automatically if the previous window was closed.</summary>
     public async Task<bool> EnsureStartedAsync(CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_ctx is not null && _page is not null) return true;
+            if (Alive) return true;
+            _page = null; _ctx = null; // drop any stale/closed session before relaunching
 
             if (!WebkitInstalled())
             {
@@ -67,39 +80,52 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
             Set("Launching the LLM Browser…");
             _pw ??= await Playwright.CreateAsync().ConfigureAwait(false);
             Directory.CreateDirectory(UserDataDir);
-            _ctx = await _pw.Webkit.LaunchPersistentContextAsync(UserDataDir,
+            var ctx = await _pw.Webkit.LaunchPersistentContextAsync(UserDataDir,
                 new BrowserTypeLaunchPersistentContextOptions
                 {
                     Headless = false,
                     ViewportSize = new ViewportSize { Width = 1280, Height = 900 },
                 }).ConfigureAwait(false);
-            _page = _ctx.Pages.Count > 0 ? _ctx.Pages[0] : await _ctx.NewPageAsync().ConfigureAwait(false);
+            // If the user closes the browser window, drop our references so the next action relaunches.
+            ctx.Close += (_, __) => { _ctx = null; _page = null; NeedsUserReason = null; Set("Browser closed"); };
+            var page = ctx.Pages.Count > 0 ? ctx.Pages[0] : await ctx.NewPageAsync().ConfigureAwait(false);
+            page.Close += (_, __) => { _page = null; };
+            _ctx = ctx;
+            _page = page;
             Set("Browser ready");
             return true;
         }
-        catch (Exception ex) { Set("Browser error: " + ex.Message); return false; }
+        catch (Exception ex) { _ctx = null; _page = null; Set("Browser error: " + ex.Message); return false; }
         finally { _gate.Release(); }
     }
 
-    /// <summary>Open a URL and bring the window to the front so the user can interact with it.</summary>
+    /// <summary>Open a URL and bring the window to the front. Relaunches once if the browser was closed.</summary>
     public async Task<bool> OpenAsync(string url, CancellationToken ct = default)
     {
-        if (!await EnsureStartedAsync(ct).ConfigureAwait(false)) return false;
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
-        try
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            Set("Opening " + url);
-            await _page!.GotoAsync(url, new PageGotoOptions
+            if (!await EnsureStartedAsync(ct).ConfigureAwait(false)) return false;
+            await _gate.WaitAsync(ct).ConfigureAwait(false);
+            try
             {
-                WaitUntil = WaitUntilState.DOMContentLoaded,
-                Timeout = 45000,
-            }).ConfigureAwait(false);
-            try { await _page.BringToFrontAsync().ConfigureAwait(false); } catch { }
-            Set("Open: " + _page.Url);
-            return true;
+                Set("Opening " + url);
+                await _page!.GotoAsync(url, new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.DOMContentLoaded,
+                    Timeout = 45000,
+                }).ConfigureAwait(false);
+                try { await _page.BringToFrontAsync().ConfigureAwait(false); } catch { }
+                Set("Open: " + _page.Url);
+                return true;
+            }
+            catch (Exception ex) when (IsClosed(ex) && attempt == 0)
+            {
+                _ctx = null; _page = null; // browser was closed — relaunch and retry once
+            }
+            catch (Exception ex) { Set("Open problem: " + ex.Message); return false; }
+            finally { _gate.Release(); }
         }
-        catch (Exception ex) { Set("Open problem: " + ex.Message); return false; }
-        finally { _gate.Release(); }
+        return false;
     }
 
     /// <summary>Return a compact JSON snapshot of the current page for the LLM to reason over.</summary>
@@ -111,7 +137,7 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
             if (_page is null) return "{}";
             return await _page.EvaluateAsync<string>(ObserveJs).ConfigureAwait(false);
         }
-        catch (Exception ex) { return "{\"error\":\"" + Escape(ex.Message) + "\"}"; }
+        catch (Exception ex) { ResetIfClosed(ex); return "{\"error\":\"" + Escape(ex.Message) + "\"}"; }
         finally { _gate.Release(); }
     }
 
@@ -154,7 +180,7 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
             Set("Did: " + kind);
             return "ok";
         }
-        catch (Exception ex) { return "action error: " + ex.Message; }
+        catch (Exception ex) { ResetIfClosed(ex); return "action error: " + ex.Message; }
         finally { _gate.Release(); }
     }
 
@@ -173,7 +199,7 @@ public sealed class PlaywrightBrowser : IAsyncDisposable
             if (_page is null) return "[]";
             return await _page.EvaluateAsync<string>(goal == "companies" ? ExtractCompaniesJs : ExtractJobsJs).ConfigureAwait(false);
         }
-        catch { return "[]"; }
+        catch (Exception ex) { ResetIfClosed(ex); return "[]"; }
         finally { _gate.Release(); }
     }
 

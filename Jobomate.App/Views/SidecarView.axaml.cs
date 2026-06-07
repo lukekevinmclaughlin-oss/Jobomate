@@ -337,8 +337,10 @@ public partial class SidecarView : UserControl
         }
         else
         {
-            _browserStatus.Text = b.IsRunning ? "● " + b.Status : "○ " + (string.IsNullOrEmpty(b.Status) ? "Not started" : b.Status);
-            _browserStatus.Foreground = b.IsRunning ? GreenBrush : MutedBrush;
+            var problem = b.Status.Contains("problem", StringComparison.OrdinalIgnoreCase)
+                       || b.Status.Contains("error", StringComparison.OrdinalIgnoreCase);
+            _browserStatus.Text = b.IsRunning ? "● " + b.Status : (problem ? "⚠ " : "○ ") + (string.IsNullOrEmpty(b.Status) ? "Not started" : b.Status);
+            _browserStatus.Foreground = problem ? WarnBrush : (b.IsRunning ? GreenBrush : MutedBrush);
             if (_browserResume is not null) _browserResume.IsVisible = false;
         }
     }
