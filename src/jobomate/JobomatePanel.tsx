@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Send, Bot, UserRound, Briefcase, Building2, FileText, CheckCircle2, Mail, Play, Loader2, Pencil, Trash2, Eye, EyeOff, X, Plus, MessagesSquare, ChevronDown } from "lucide-react";
-import { engine, EngineStatus, JobRow, DraftRow, ThreadRow } from "./api";
+import { Send, Bot, UserRound, Briefcase, Building2, FileText, CheckCircle2, Mail, Play, Loader2, Pencil, Trash2, Eye, EyeOff, X, Plus, MessagesSquare, ChevronDown, Paperclip, CalendarClock } from "lucide-react";
+import { engine, EngineStatus, JobRow, CompanyRow, DraftRow, ThreadRow } from "./api";
 
 interface Msg { id: string; role: "user" | "assistant" | "system"; content: string; }
 
@@ -19,8 +19,9 @@ export const JobomatePanel: React.FC = () => {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [tab, setTab] = useState<"jobs" | "drafts">("jobs");
+  const [tab, setTab] = useState<"jobs" | "companies" | "drafts">("jobs");
   const [jobs, setJobs] = useState<JobRow[]>([]);
+  const [companies, setCompanies] = useState<CompanyRow[]>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [editing, setEditing] = useState<EditState>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -31,7 +32,9 @@ export const JobomatePanel: React.FC = () => {
   const [showChats, setShowChats] = useState(false);
   const [selThreads, setSelThreads] = useState<Set<string>>(new Set());
   const [selJobs, setSelJobs] = useState<Set<string>>(new Set());
+  const [selCompanies, setSelCompanies] = useState<Set<string>>(new Set());
   const [selDrafts, setSelDrafts] = useState<Set<string>>(new Set());
+  const [autoSend, setAutoSend] = useState(false);
   const chatsRef = useRef<HTMLDivElement>(null);
   const loadedRef = useRef(false);
 
@@ -94,6 +97,7 @@ export const JobomatePanel: React.FC = () => {
 
   const refreshData = useCallback(async () => {
     try { setJobs(await engine.jobs()); } catch { /* ignore */ }
+    try { setCompanies(await engine.companies()); } catch { /* ignore */ }
     try { setDrafts(await engine.drafts()); } catch { /* ignore */ }
   }, []);
 
@@ -150,6 +154,44 @@ export const JobomatePanel: React.FC = () => {
     setSelDrafts(new Set()); await refreshData(); await refreshStatus();
   }, [selDrafts, drafts.length, refreshData, refreshStatus]);
 
+  const deleteCompaniesBulk = useCallback(async (all: boolean) => {
+    const ids = all ? [] : [...selCompanies];
+    if (!all && ids.length === 0) return;
+    if (!window.confirm(all ? `Delete all ${companies.length} companies in this chat?` : `Delete ${ids.length} selected company(ies)?`)) return;
+    try { await engine.deleteCompanies(ids, all); } catch { /* ignore */ }
+    setSelCompanies(new Set()); await refreshData(); await refreshStatus();
+  }, [selCompanies, companies.length, refreshData, refreshStatus]);
+
+  const draftCompanies = useCallback(async () => {
+    if (busy) return;
+    const ids = [...selCompanies];
+    setBusy("Drafting speculative applications…");
+    try { const r = await engine.draft("company", ids); say("system", `Drafted ${r.drafted ?? 0} speculative application(s). See the Drafts tab.`); }
+    catch (e: any) { say("system", "Draft failed: " + e.message); }
+    setSelCompanies(new Set()); await refreshData(); setTab("drafts"); setBusy(null);
+  }, [busy, selCompanies, refreshData]);
+
+  const attachCv = useCallback(async () => {
+    const picker = window.browserAPI?.dialog?.openCv;
+    if (!picker) { say("system", "CV picker unavailable in this build."); return; }
+    const path = await picker();
+    if (!path) return;
+    setBusy("Reading your CV…");
+    try {
+      const r = await engine.loadCv(path);
+      say("system", r?.name ? `CV loaded — profile set to ${r.name}${r.headline ? " (" + r.headline + ")" : ""}.` : "CV loaded.");
+    } catch (e: any) { say("system", "Couldn't read that CV: " + e.message); }
+    await refreshStatus(); setBusy(null);
+  }, [refreshStatus]);
+
+  const scheduleSend = useCallback(async () => {
+    if (busy) return;
+    setBusy("Scheduling approved applications…");
+    try { const r = await engine.schedule(); say("system", `Queued ${r.scheduled ?? 0} of ${r.of ?? 0} approved application(s) to send (rate-limited).`); }
+    catch (e: any) { say("system", e.message); }
+    await refreshStatus(); setBusy(null);
+  }, [busy, refreshStatus]);
+
   // Poll the engine until it's up, then keep status fresh.
   useEffect(() => {
     refreshStatus();
@@ -173,6 +215,18 @@ export const JobomatePanel: React.FC = () => {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [showChats]);
 
+  // Auto-send: while on, send any due (queued + scheduled) items every 2 minutes. The engine's
+  // rate-limiter still spaces them out; dry-run unless a real email account is connected.
+  useEffect(() => {
+    if (!autoSend) return;
+    const tick = async () => {
+      try { const r = await engine.send(); if (r?.sent) say("system", `Auto-sent ${r.sent}${r.dryRun ? " (dry-run)" : ""}.`); } catch { /* ignore */ }
+      await refreshStatus();
+    };
+    const t = setInterval(tick, 120000);
+    return () => clearInterval(t);
+  }, [autoSend, refreshStatus]);
+
   const say = (role: Msg["role"], content: string) => setMessages((m) => [...m, { id: uid(), role, content }]);
 
   const runAction = useCallback(async (action: string) => {
@@ -184,7 +238,7 @@ export const JobomatePanel: React.FC = () => {
       case "companies":
         setBusy("Researching companies in the browser…");
         try { const r = await engine.research("companies"); say("system", `Collected ${r.companies ?? 0} companies.`); } catch (e: any) { say("system", "Research failed: " + e.message); }
-        await refreshData(); break;
+        await refreshData(); setTab("companies"); break;
       case "list":
         await refreshData(); setTab("jobs"); say("system", `${jobs.length} postings collected — see the Jobs tab below.`); break;
       case "draft":
@@ -245,7 +299,7 @@ export const JobomatePanel: React.FC = () => {
       } else {
         const d = editing.data;
         await engine.updateDraft(d.id, {
-          role: d.role, company: d.company, to: d.to, subject: d.subject, body: d.body, status: d.status,
+          role: d.role, company: d.company, to: d.to, subject: d.subject, body: d.body, status: d.status, coverLetter: d.coverLetter,
         });
       }
       await refreshData();
@@ -288,6 +342,9 @@ export const JobomatePanel: React.FC = () => {
 
       <div className="jbm__chatbar">
         <button className="jbm__chatbarBtn" onClick={newChat} title="Start a new chat"><Plus size={14} /> New Chat</button>
+        <button className="jbm__chatbarBtn" onClick={attachCv} disabled={!!busy} title="Attach your CV (PDF / Word / text) so applications are tailored to you">
+          <Paperclip size={14} /> {status?.hasCv && status.profileName ? `${status.profileName.split(" ")[0]}’s CV` : "Attach CV"}
+        </button>
         <div className="jbm__chatsWrap" ref={chatsRef}>
           <button className="jbm__chatbarBtn" onClick={() => { const open = !showChats; setShowChats(open); if (open) refreshThreads(); }}>
             <MessagesSquare size={14} /> Chats <ChevronDown size={12} />
@@ -347,8 +404,12 @@ export const JobomatePanel: React.FC = () => {
         <button onClick={() => quick("companies")} disabled={!!busy}><Building2 size={14} /> Companies</button>
         <button onClick={() => quick("draft")} disabled={!!busy}><FileText size={14} /> Draft</button>
         <button onClick={() => quick("approve")} disabled={!!busy}><CheckCircle2 size={14} /> Approve</button>
+        <button onClick={scheduleSend} disabled={!!busy} title="Queue approved applications to send (rate-limited)"><CalendarClock size={14} /> Schedule{status && status.queued > 0 ? ` (${status.queued})` : ""}</button>
         <button onClick={() => quick("prepare")} disabled={!!busy}><Mail size={14} /> Prepare emails</button>
         <button onClick={() => quick("send")} disabled={!!busy}><Play size={14} /> Send</button>
+        <label className="jbm__autosend" title="Automatically send due items every 2 minutes (rate-limited; dry-run unless a real email account is connected)">
+          <input type="checkbox" checked={autoSend} onChange={(e) => setAutoSend(e.target.checked)} /> Auto-send
+        </label>
       </div>
 
       <div ref={listRef} className="jbm__messages">
@@ -372,6 +433,7 @@ export const JobomatePanel: React.FC = () => {
       <div className="jbm__results" style={{ height: resultsH, maxHeight: "none", flexShrink: 0 }}>
         <div className="jbm__tabs">
           <button className={tab === "jobs" ? "on" : ""} onClick={() => setTab("jobs")}>Jobs ({jobs.length})</button>
+          <button className={tab === "companies" ? "on" : ""} onClick={() => setTab("companies")}>Companies ({companies.length})</button>
           <button className={tab === "drafts" ? "on" : ""} onClick={() => setTab("drafts")}>Drafts ({drafts.length})</button>
         </div>
 
@@ -381,6 +443,15 @@ export const JobomatePanel: React.FC = () => {
               onChange={() => setSelJobs(selJobs.size === jobs.length ? new Set() : new Set(jobs.map((j) => j.id)))} /> All</label>
             {selJobs.size > 0 && <button onClick={() => deleteJobsBulk(false)}><Trash2 size={12} /> Delete ({selJobs.size})</button>}
             <button className="jbm__delAll" onClick={() => deleteJobsBulk(true)}>Delete all</button>
+          </div>
+        )}
+        {tab === "companies" && companies.length > 0 && (
+          <div className="jbm__resultBar">
+            <label><input type="checkbox" checked={selCompanies.size === companies.length}
+              onChange={() => setSelCompanies(selCompanies.size === companies.length ? new Set() : new Set(companies.map((c) => c.id)))} /> All</label>
+            <button onClick={draftCompanies} disabled={!!busy} title="Draft speculative applications for the selected (or all) companies"><FileText size={12} /> Draft{selCompanies.size > 0 ? ` (${selCompanies.size})` : ""}</button>
+            {selCompanies.size > 0 && <button onClick={() => deleteCompaniesBulk(false)}><Trash2 size={12} /> Delete ({selCompanies.size})</button>}
+            <button className="jbm__delAll" onClick={() => deleteCompaniesBulk(true)}>Delete all</button>
           </div>
         )}
         {tab === "drafts" && drafts.length > 0 && (
@@ -410,6 +481,19 @@ export const JobomatePanel: React.FC = () => {
             </div>
           ))}
           {tab === "jobs" && jobs.length === 0 && <div className="jbm__none">No postings in this chat yet — hit “Recent jobs”.</div>}
+          {tab === "companies" && companies.slice(0, 300).map((c) => (
+            <div key={c.id} className={`jbm__job ${selCompanies.has(c.id) ? "is-sel" : ""}`}>
+              <input type="checkbox" className="jbm__rowCheck" checked={selCompanies.has(c.id)} onChange={() => toggleSel(selCompanies, setSelCompanies, c.id)} />
+              <div className="jbm__jobMain">
+                <div className="jbm__jobTitle">{c.name}</div>
+                <div className="jbm__jobMeta">{[c.email, c.website, c.location].filter(Boolean).join(" · ") || "no email — needs manual contact"}</div>
+              </div>
+              <div className="jbm__rowActions">
+                <button title="Delete company" onClick={async () => { if (window.confirm(`Delete ${c.name}?`)) { try { await engine.deleteCompanies([c.id]); } catch { /* ignore */ } await refreshData(); await refreshStatus(); } }}><Trash2 size={14} /></button>
+              </div>
+            </div>
+          ))}
+          {tab === "companies" && companies.length === 0 && <div className="jbm__none">No companies in this chat yet — hit “Companies”.</div>}
           {tab === "drafts" && drafts.map((d) => (
             <div key={d.id} className={`jbm__job ${selDrafts.has(d.id) ? "is-sel" : ""}`}>
               <input type="checkbox" className="jbm__rowCheck" checked={selDrafts.has(d.id)} onChange={() => toggleSel(selDrafts, setSelDrafts, d.id)} />
@@ -466,7 +550,8 @@ export const JobomatePanel: React.FC = () => {
                       {DRAFT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </label>
-                  <label>Body<textarea rows={9} value={editing.data.body} onChange={(e) => setField("body", e.target.value)} /></label>
+                  <label>Email body<textarea rows={7} value={editing.data.body} onChange={(e) => setField("body", e.target.value)} /></label>
+                  <label>Cover letter<textarea rows={9} value={editing.data.coverLetter} onChange={(e) => setField("coverLetter", e.target.value)} placeholder="The tailored cover letter the model wrote" /></label>
                 </>
               )}
             </div>

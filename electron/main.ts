@@ -992,6 +992,20 @@ function setupIpcHandlers(
     }
   );
 
+  // Native file picker for attaching a CV (PDF/text/Word). Returns the chosen path, or null.
+  electron.ipcMain.handle("dialog:open-cv", async () => {
+    if (!mainWindow) return null;
+    const r = await electron.dialog.showOpenDialog(mainWindow, {
+      title: "Attach your CV",
+      properties: ["openFile"],
+      filters: [
+        { name: "CV / Résumé", extensions: ["pdf", "txt", "md", "doc", "docx", "rtf"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
+    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
+  });
+
   electron.ipcMain.on("window:browser-bounds", (_event, bounds: electron.Rectangle) => {
     setBrowserBounds(bounds);
   });

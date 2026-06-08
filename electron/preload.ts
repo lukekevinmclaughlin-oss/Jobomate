@@ -82,6 +82,9 @@ contextBridge.exposeInMainWorld("browserAPI", {
     clearBrowsingData: (opts: { cookies?: boolean; cache?: boolean; siteData?: boolean; since?: number }) =>
       ipcRenderer.invoke("privacy:clear-browsing-data", opts),
   },
+  dialog: {
+    openCv: (): Promise<string | null> => ipcRenderer.invoke("dialog:open-cv"),
+  },
   window: {
     setBrowserBounds: (bounds: {
       x: number;

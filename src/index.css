@@ -1785,6 +1785,8 @@ input, select, textarea {
 .jbm__rowCheck { flex-shrink: 0; margin-right: 2px; }
 .jbm__job.is-sel { background: color-mix(in srgb, var(--accent-blue) 14%, transparent); }
 
+.jbm__autosend { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+
 /* --- resizable message box --- */
 .jbm__composerSplit { height: 7px; flex-shrink: 0; cursor: row-resize; background: var(--border-primary); transition: background var(--transition-fast); }
 .jbm__composerSplit:hover, .jbm__composerSplit:active { background: var(--accent-blue); }

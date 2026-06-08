@@ -305,6 +305,9 @@ public sealed class CompanyTarget : IEntity
     public string Notes { get; set; } = "";
     public DateTimeOffset DateFound { get; set; } = DateTimeOffset.UtcNow;
     public string SearchRunId { get; set; } = "";
+
+    /// <summary>The chat thread this company was collected under (for per-thread scoping).</summary>
+    public string ThreadId { get; set; } = "";
 }
 
 public sealed class ApplicationDraft : IEntity

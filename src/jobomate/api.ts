@@ -29,6 +29,7 @@ export interface EngineStatus {
   draftsApproved: number;
   queued: number;
   tokens: number;
+  hasCv: boolean;
   profileName: string;
   profileHeadline: string;
   sites: string[];
@@ -39,8 +40,8 @@ export interface EngineStatus {
 }
 
 export interface JobRow { id: string; title: string; company: string; location: string; url: string; email?: string; included: boolean; }
-export interface CompanyRow { id: string; name: string; website: string; location: string; email?: string; }
-export interface DraftRow { id: string; company: string; role: string; status: string; to: string; subject: string; body: string; }
+export interface CompanyRow { id: string; name: string; website: string; location: string; email?: string; contact?: string; }
+export interface DraftRow { id: string; company: string; role: string; status: string; to: string; subject: string; body: string; coverLetter: string; }
 export interface ChatReply { text: string; actions: string[]; }
 export interface ThreadRow { id: string; title: string; lastActive: number; active: boolean; jobs: number; drafts: number; }
 export interface ThreadMessages { id: string; title: string; messages: { role: string; content: string }[]; }
@@ -60,12 +61,13 @@ export const engine = {
     post("/api/jobs/delete", { id }),
   updateDraft: (
     id: string,
-    patch: Partial<Pick<DraftRow, "role" | "company" | "to" | "subject" | "body" | "status">>
+    patch: Partial<Pick<DraftRow, "role" | "company" | "to" | "subject" | "body" | "status" | "coverLetter">>
   ): Promise<{ ok?: boolean; error?: string }> => post("/api/drafts/update", { id, ...patch }),
   deleteDraft: (id: string): Promise<{ ok?: boolean; error?: string }> =>
     post("/api/drafts/delete", { id }),
   deleteJobs: (ids: string[], all = false): Promise<{ deleted: number }> => post("/api/jobs/delete-bulk", { ids, all }),
   deleteDrafts: (ids: string[], all = false): Promise<{ deleted: number }> => post("/api/drafts/delete-bulk", { ids, all }),
+  deleteCompanies: (ids: string[], all = false): Promise<{ deleted: number }> => post("/api/companies/delete-bulk", { ids, all }),
   // ---- chat threads ----
   threads: (): Promise<ThreadRow[]> => get("/api/threads"),
   newThread: (): Promise<{ id: string; title: string; messages: any[] }> => post("/api/thread/new"),

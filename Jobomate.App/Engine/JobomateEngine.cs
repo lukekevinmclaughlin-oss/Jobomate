@@ -57,6 +57,7 @@ public sealed class JobomateEngine
         // One-time migration: adopt any untagged jobs/drafts into the active thread so existing data stays visible.
         foreach (var j in Services.JobRepo.All().Where(j => string.IsNullOrEmpty(j.ThreadId)).ToList()) { j.ThreadId = _activeThreadId; Services.JobRepo.Upsert(j); }
         foreach (var d in Services.DraftRepo.All().Where(d => string.IsNullOrEmpty(d.ThreadId)).ToList()) { d.ThreadId = _activeThreadId; Services.DraftRepo.Upsert(d); }
+        foreach (var c in Services.CompanyRepo.All().Where(c => string.IsNullOrEmpty(c.ThreadId)).ToList()) { c.ThreadId = _activeThreadId; Services.CompanyRepo.Upsert(c); }
         LoadHistory(active);
     }
 
@@ -182,7 +183,7 @@ public sealed class JobomateEngine
             status = s.Status,
             threadId = _activeThreadId,
             jobs = s.JobRepo.All().Count(j => j.ThreadId == _activeThreadId),
-            companies = s.CompanyRepo.Count(),
+            companies = s.CompanyRepo.All().Count(c => c.ThreadId == _activeThreadId),
             draftsPending = myDrafts.Count(d => d.Status == DraftStatus.Draft),
             draftsApproved = myDrafts.Count(d => d.Status == DraftStatus.Approved),
             queued = s.QueueRepo.All().Count(i => i.Status == SendStatus.Pending),
@@ -253,7 +254,8 @@ public sealed class JobomateEngine
 
         var myJobs = Services.JobRepo.All().Where(j => j.ThreadId == _activeThreadId).ToList();
         var myDrafts = Services.DraftRepo.All().Where(d => d.ThreadId == _activeThreadId).ToList();
-        var state = $"Current state (this chat): {myJobs.Count} job postings collected, {myDrafts.Count(d => d.Status == DraftStatus.Draft)} drafts pending, {myDrafts.Count(d => d.Status == DraftStatus.Approved)} approved.";
+        var myCompanies = Services.CompanyRepo.All().Where(c => c.ThreadId == _activeThreadId).ToList();
+        var state = $"Current state (this chat): {myJobs.Count} job postings collected, {myCompanies.Count} companies collected, {myDrafts.Count(d => d.Status == DraftStatus.Draft)} drafts pending, {myDrafts.Count(d => d.Status == DraftStatus.Approved)} approved.";
 
         var collected = "";
         if (myJobs.Count > 0)
@@ -261,6 +263,11 @@ public sealed class JobomateEngine
             var rows = myJobs.OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore).Take(25)
                 .Select(j => $"- {j.Title}{(string.IsNullOrWhiteSpace(j.Company) ? "" : " @ " + j.Company)}{(string.IsNullOrWhiteSpace(j.Location) ? "" : " (" + j.Location + ")")}");
             collected = "\n\nJob postings already collected in this chat (real, in the app — to display them use [[ACTION:list]], don't re-search):\n" + string.Join("\n", rows);
+        }
+        if (myCompanies.Count > 0)
+        {
+            var rows = myCompanies.Take(25).Select(c => $"- {c.Name}{(string.IsNullOrWhiteSpace(c.Website) ? "" : " — " + c.Website)}");
+            collected += "\n\nCompanies already collected in this chat (for unsolicited applications):\n" + string.Join("\n", rows);
         }
 
         var system =
@@ -328,7 +335,7 @@ public sealed class JobomateEngine
         Services.SearchRunRepo.Upsert(run);
         var agent = Services.BuildBrowserAgent(onProgress, onProgress);
         var result = await agent.RunAsync(url, g, 25, run.Id, ct).ConfigureAwait(false);
-        if (g == BrowserGoal.Companies) Services.CompanyRepo.UpsertAll(result.Companies);
+        if (g == BrowserGoal.Companies) { foreach (var c in result.Companies) c.ThreadId = _activeThreadId; Services.CompanyRepo.UpsertAll(result.Companies); }
         else { foreach (var j in result.Jobs) j.ThreadId = _activeThreadId; Services.JobRepo.UpsertAll(result.Jobs); }
         run.Status = SearchRunStatus.Completed; run.CompletedAt = DateTimeOffset.UtcNow; run.ResultCount = result.Count;
         Services.SearchRunRepo.Upsert(run);
@@ -342,13 +349,20 @@ public sealed class JobomateEngine
         .OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore)
         .Select(j => new { id = j.Id, title = j.Title, company = j.Company, location = j.Location, url = j.SourceUrl, email = j.ContactEmail, included = j.Included }).ToList();
 
-    public object Companies() => Services.CompanyRepo.All()
-        .Select(c => new { id = c.Id, name = c.Name, website = c.Website, location = c.Location, email = c.RecruitingEmail }).ToList();
+    public object Companies() => Services.CompanyRepo.All().Where(c => c.ThreadId == _activeThreadId)
+        .Select(c => new { id = c.Id, name = c.Name, website = c.Website, location = c.Location, email = c.RecruitingEmail, contact = c.ContactStatus.ToString() }).ToList();
+
+    public object DeleteCompanies(string[] ids, bool all)
+    {
+        var targets = all ? Services.CompanyRepo.All().Where(c => c.ThreadId == _activeThreadId).Select(c => c.Id).ToList() : ids.ToList();
+        foreach (var id in targets) Services.CompanyRepo.Delete(id);
+        return new { deleted = targets.Count };
+    }
 
     public object Drafts() => Services.DraftRepo.All().Where(d => d.ThreadId == _activeThreadId).Select(d =>
     {
         var email = Services.EmailRepo.All().FirstOrDefault(e => e.ApplicationDraftId == d.Id);
-        return new { id = d.Id, company = d.Company, role = d.RoleTitle, status = d.Status.ToString(), to = email?.ToAddress ?? "", subject = email?.Subject ?? "", body = email?.Body ?? "" };
+        return new { id = d.Id, company = d.Company, role = d.RoleTitle, status = d.Status.ToString(), to = email?.ToAddress ?? "", subject = email?.Subject ?? "", body = email?.Body ?? "", coverLetter = d.CoverLetterText ?? "" };
     }).ToList();
 
     /// <summary>Bulk delete. With ids: those rows. Without ids (all=true): every job in the active chat.</summary>
@@ -396,12 +410,13 @@ public sealed class JobomateEngine
     }
 
     /// <summary>Edit a draft's role/company/status and the associated email's recipient/subject/body.</summary>
-    public object UpdateDraft(string id, string? role, string? company, string? to, string? subject, string? bodyText, string? status)
+    public object UpdateDraft(string id, string? role, string? company, string? to, string? subject, string? bodyText, string? status, string? coverLetter = null)
     {
         var d = Services.DraftRepo.Get(id);
         if (d is null) return new { error = "draft not found" };
         if (role is not null) d.RoleTitle = role;
         if (company is not null) d.Company = company;
+        if (coverLetter is not null) { d.CoverLetterText = coverLetter; d.EditedByUser = true; }
         if (status is not null && Enum.TryParse<DraftStatus>(status, true, out var st)) d.Status = st;
         var emailEdited = to is not null || subject is not null || bodyText is not null;
         if (emailEdited) d.EditedByUser = true;
@@ -442,7 +457,9 @@ public sealed class JobomateEngine
 
         if (kind == "company")
         {
-            var companies = ids.Length > 0 ? ids.Select(i => Services.CompanyRepo.Get(i)).Where(c => c is not null).Select(c => c!).ToList() : Services.CompanyRepo.All().ToList();
+            var companies = ids.Length > 0
+                ? ids.Select(i => Services.CompanyRepo.Get(i)).Where(c => c is not null).Select(c => c!).ToList()
+                : Services.CompanyRepo.All().Where(c => c.ThreadId == _activeThreadId).ToList();
             foreach (var c in companies)
             {
                 if (ct.IsCancellationRequested) break;

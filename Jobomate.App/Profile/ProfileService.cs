@@ -78,8 +78,9 @@ public sealed class ProfileService
     {
         var prompt =
             "Extract the candidate's full name and location, a concise professional summary (2-3 sentences), a short " +
-            "headline, and up to 12 key skills from this CV. " +
-            "Return ONLY minified JSON: {\"fullName\":\"...\",\"location\":\"...\",\"summary\":\"...\",\"headline\":\"...\",\"skills\":[\"...\"]}. " +
+            "headline, up to 12 key skills, and EVERY language they list with its proficiency level. " +
+            "Return ONLY minified JSON: {\"fullName\":\"...\",\"location\":\"...\",\"summary\":\"...\",\"headline\":\"...\",\"skills\":[\"...\"],\"languages\":[{\"language\":\"English\",\"level\":\"native\"}]}. " +
+            "For each language use one level from: native, fluent, advanced, intermediate, basic. Include ALL languages the CV mentions, not just the first. " +
             "Use only facts present in the CV. Never mention layoffs, health, therapy, or any personal circumstances.\n\nCV:\n" +
             Truncate(cvText, 8000);
 
@@ -116,6 +117,19 @@ public sealed class ProfileService
                     .Select(x => x!)
                     .ToList();
                 if (skills.Count > 0) seed.Skills = skills;
+            }
+            if (root.TryGetProperty("languages", out var lg) && lg.ValueKind == JsonValueKind.Array)
+            {
+                var langs = new List<CandidateLanguage>();
+                foreach (var el in lg.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.Object) continue;
+                    var name = el.TryGetProperty("language", out var ln) ? ln.GetString() : null;
+                    var level = el.TryGetProperty("level", out var lv) ? lv.GetString() : "";
+                    if (!string.IsNullOrWhiteSpace(name))
+                        langs.Add(new CandidateLanguage { Language = name!.Trim(), Level = (level ?? "").Trim() });
+                }
+                if (langs.Count > 0) seed.Languages = langs;
             }
         }
         catch { /* keep the seed on malformed JSON */ }
