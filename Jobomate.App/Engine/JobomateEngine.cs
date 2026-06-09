@@ -8,7 +8,9 @@ using System.Threading.Tasks;
 using Jobomate.Browser;
 using Jobomate.Contracts;
 using Jobomate.Drafting;
+using Jobomate.Filters;
 using Jobomate.Llm;
+using Jobomate.Persistence;
 using Jobomate.Scheduling;
 using Jobomate.Sources;
 
