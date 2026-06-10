@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Makes the macOS menu bar and Dock show "LM_Browser" instead of "Electron"
+ * Makes the macOS menu bar and Dock show "Jobomate" instead of "Electron"
  * when running unpackaged (`electron .`).
  *
  * On macOS the application-menu title and Dock name are read from the running
