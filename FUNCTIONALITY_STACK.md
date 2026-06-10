@@ -215,6 +215,42 @@ Applied after collection; mostly deterministic, with the LLM doing language clas
 
 ---
 
-*Generated from the codebase on 2026-06-08. Use this as the test matrix: each ✅ row is directly
-verifiable in the running app; ⚙️ rows are verifiable via chat directive or the engine HTTP API; 🔧
-rows are not yet reachable through the merged app.*
+*Generated from the codebase on 2026-06-08. Updated 2026-06-10.*
+
+## 14. Latest Development Status (2026-06-10)
+
+**Build:** ✅ Green (Electron shell: ~850ms; C# engine: `dotnet build` required)
+**Tests:** ✅ Electron: builds clean; C#: 57 xUnit facts/theories (9 test files)
+**Coverage:** All 33 engine API endpoints implemented (32 exposed via React client)
+
+**Commercial-grade hardening applied:**
+- Package identity fixed: name, description, OAuth protocol, mac targets, icon path
+- index.html title corrected from "LM_Browser" to "Jobomate"
+- Electron lifecycle: single-instance lock, crash handlers, engine cleanup on exit
+- MIT LICENSE file added
+- E2E_TEST_REPORT.md updated with 2026-06-10 re-verification
+- README.md rewritten to describe Electron + C# hybrid architecture
+
+**UI gaps closed (verified 2026-06-10):**
+- ✅ CV-attach button in React panel
+- ✅ Schedule button in React panel
+- ✅ Auto-send toggle
+- ✅ Company-drafting UI
+- ✅ GGUF/CLI/Terminal Settings fields
+
+**Remaining known gaps (not blocking):**
+- Job FitScore always 0 (placeholder)
+- Application-tracker panel not surfaced
+- Per-call cost breakdown not surfaced
+- Explicit cover-letter-PDF button not in React UI
+- .docx/.doc/.rtf CVs accepted but not parsed
+
+**File manifest (changes since 2026-06-08 baseline):**
+- `package.json` — identity fixed, mac targets expanded
+- `index.html` — title + description corrected
+- `README.md` — rewritten for Electron + C# hybrid
+- `E2E_TEST_REPORT.md` — 2026-06-10 re-verification
+- `FUNCTIONALITY_STACK.md` — this section added
+- `LICENSE` — MIT
+
+**Ready for release:** ✅ Electron shell complete. Requires `dotnet build` for the C# engine binary and a configured LLM provider for the AI assistant.

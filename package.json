@@ -1,7 +1,7 @@
 {
-  "name": "lm-browser",
+  "name": "jobomate",
   "version": "1.0.0",
-  "description": "LM_Browser is a Chrome-like browser designed to be operated by both humans and LLMs",
+  "description": "Jobomate — AI-driven job-hunt assistant with LLM research, drafting, and approval",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -24,8 +24,8 @@
     },
     "protocols": [
       {
-        "name": "LM_Browser OAuth Callback",
-        "schemes": ["lm-browser"]
+        "name": "Jobomate OAuth Callback",
+        "schemes": ["jobomate"]
       }
     ],
     "files": [
@@ -38,9 +38,9 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dir"],
+      "target": ["dir", "dmg", "zip"],
       "identity": null,
-      "icon": "assets/jobomate.icns"
+      "icon": "assets/logo.icns"
     },
     "win": {
       "target": ["nsis", "portable"],
