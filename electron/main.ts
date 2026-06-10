@@ -1050,7 +1050,7 @@ electron.app.whenReady().then(() => {
   setupApplicationMenu();
   applyDockIcon();
   setupDownloads();
-  electron.app.setAsDefaultProtocolClient("lm-browser");
+  electron.app.setAsDefaultProtocolClient("jobomate");
   createMainWindow();
 
   const firstTab = createBrowserView(DEFAULT_HOME);

@@ -227,7 +227,7 @@ interface PendingOAuthFlow {
 }
 
 const SECRET_MASK = "........";
-const OAUTH_REDIRECT_URI = "lm-browser://oauth/callback";
+const OAUTH_REDIRECT_URI = "jobomate://oauth/callback";
 const CONNECTION_CONFIG_FILE = "llm-connection.json";
 
 const DEFAULT_CONFIG: LlmConnectionConfig = {

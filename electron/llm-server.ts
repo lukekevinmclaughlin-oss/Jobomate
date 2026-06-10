@@ -112,7 +112,7 @@ export class LLMBrowserServer {
     this.app.get("/health", (_req: Request, res: Response) => {
       res.json({
         status: "ok",
-        name: "LM_Browser",
+        name: "Jobomate",
         version: "1.0.0",
         protocol: "json-rpc-2.0 + REST",
         port: this.port,
@@ -385,7 +385,7 @@ export class LLMBrowserServer {
         return this.listTools();
       case "browser.get_info":
         return {
-          name: "LM_Browser",
+          name: "Jobomate",
           version: "1.0.0",
           port: this.port,
           platform: process.platform,
@@ -561,7 +561,7 @@ export class LLMBrowserServer {
       this.server.listen(this.port, "127.0.0.1", () => {
         this.startedAt = Date.now();
         console.log(
-          `[LLM Server] LM_Browser control server running on http://127.0.0.1:${this.port}`
+          `[LLM Server] Jobomate control server running on http://127.0.0.1:${this.port}`
         );
         resolve(this.port);
       });
