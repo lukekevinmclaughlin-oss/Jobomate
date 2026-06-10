@@ -254,3 +254,17 @@ Applied after collection; mostly deterministic, with the LLM doing language clas
 - `LICENSE` — MIT
 
 **Ready for release:** ✅ Electron shell complete. Requires `dotnet build` for the C# engine binary and a configured LLM provider for the AI assistant.
+
+
+---
+
+## Addendum — 2026-06-10 final verification pass
+
+- **Electron bridge layer synced to the hardened fleet baseline** (`electron/llm-server.ts` +
+  `electron/llm-connection.ts` from LLM_Browser, with Jobomate tokens preserved: port **9222**,
+  `name:"Jobomate"`, `jobomate://oauth/callback`). Gains: `CONTROL_API_METHODS` single-source parity
+  (listTools now advertises all 33 methods), `connect()`/`connected`/`maxToolRounds` config,
+  `browser_tabs` **op-alias** fix, `browser.set_cookie` flat-form fix.
+- **Electron test suite added** (ported from LLM_Browser): `tests/` 41 vitest unit tests +
+  `tests/e2e/agent-loop.e2e.cjs`; `npm test` / `npm run test:e2e` scripts wired; vitest devDependency.
+- Verified: npm build ✓ · 41/41 unit ✓ · 28/28 agent-loop E2E ✓ · **80/80 C# engine tests** ✓.

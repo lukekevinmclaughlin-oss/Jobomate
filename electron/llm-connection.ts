@@ -140,6 +140,8 @@ export interface LlmConnectionConfig {
   localAIContextSize: number;
   enableLlmStreaming: boolean;
   requireToolUse: boolean;
+  connected: boolean;
+  maxToolRounds: number;
 }
 
 export interface LlmConnectionConfigForRenderer extends LlmConnectionConfig {
@@ -261,6 +263,8 @@ const DEFAULT_CONFIG: LlmConnectionConfig = {
   localAIContextSize: 4096,
   enableLlmStreaming: true,
   requireToolUse: false,
+  connected: false,
+  maxToolRounds: 0,
 };
 
 const PROVIDER_INFO: Record<AppApiProvider, ProviderInfo> = {
@@ -542,6 +546,39 @@ export class LlmConnectionManager {
     return this.forRenderer(merged);
   }
 
+  // Activate a connection type: persist the chosen settings, verify them with a
+  // live test, and mark the connection as connected only if the test passes.
+  async connect(
+    input?: Partial<LlmConnectionConfig>
+  ): Promise<{ ok: boolean; message: string; config: LlmConnectionConfigForRenderer }> {
+    const current = await this.loadConfig();
+    const merged = this.mergeConfig(current, { ...input, connected: true });
+    await this.writeConfig(merged);
+    const test = await this.testConnection();
+    if (!test.ok) {
+      merged.connected = false;
+      await this.writeConfig(merged);
+    }
+    return { ok: test.ok, message: test.message, config: this.forRenderer(merged) };
+  }
+
+  // Deactivate the active (or given) connection type and forget its stored secret.
+  async disconnect(type?: AppConnectionType): Promise<LlmConnectionConfigForRenderer> {
+    const config = await this.loadConfig();
+    const target = type || config.connectionType;
+    config.connected = false;
+    if (target === "ApiKey") {
+      config.apiKey = "";
+    }
+    if (target === "OAuth") {
+      config.oauthAccessToken = "";
+      config.oauthRefreshToken = "";
+      config.oauthExpiresAt = "";
+    }
+    await this.writeConfig(config);
+    return this.forRenderer(config);
+  }
+
   async testConnection(input?: Partial<LlmConnectionConfig>): Promise<{ ok: boolean; message: string }> {
     const current = await this.loadConfig();
     const config = input ? this.mergeConfig(current, input) : current;
@@ -608,6 +645,7 @@ export class LlmConnectionManager {
       config.oauthAccessToken = "";
       config.oauthRefreshToken = "";
       config.oauthExpiresAt = "";
+      if (config.connectionType === "OAuth") config.connected = false;
       await this.writeConfig(config);
     }
     return this.forRenderer(config);
@@ -635,6 +673,8 @@ export class LlmConnectionManager {
     config.oauthAccessToken = token.accessToken;
     config.oauthRefreshToken = token.refreshToken || config.oauthRefreshToken;
     config.oauthExpiresAt = token.expiresAt;
+    config.connectionType = "OAuth";
+    config.connected = true;
     await this.writeConfig(config);
     this.pendingOAuth.delete(state);
     return "OAuth connected. Token stored securely.";
@@ -655,8 +695,15 @@ export class LlmConnectionManager {
     ];
     const tools = browserToolDefinitions();
     const toolRuns: AssistantToolRun[] = [];
+    // maxToolRounds: 0 (or unset) = unlimited, so the model can carry out long,
+    // multi-step browser tasks. A no-progress guard below still prevents runaway
+    // loops even when unlimited.
+    const maxRounds = config.maxToolRounds > 0 ? config.maxToolRounds : Infinity;
+    const STALL_LIMIT = 8;
+    let lastSignature = "";
+    let stalledRounds = 0;
 
-    for (let round = 0; round < 8; round += 1) {
+    for (let round = 0; round < maxRounds; round += 1) {
       const response = await this.sendMessagesForConfig(config, messages, tools, {
         maxTokens: 2048,
         requireToolUse: config.requireToolUse && round === 0,
@@ -668,6 +715,19 @@ export class LlmConnectionManager {
           toolRuns,
           connection: this.connectionSummary(config),
         };
+      }
+
+      // Guard against infinite no-progress loops (the model repeating the exact
+      // same tool call): bail out to the wrap-up if it stalls.
+      const signature = JSON.stringify(
+        response.toolCalls.map((call) => [call.name, call.arguments])
+      );
+      if (signature === lastSignature) {
+        stalledRounds += 1;
+        if (stalledRounds >= STALL_LIMIT) break;
+      } else {
+        lastSignature = signature;
+        stalledRounds = 0;
       }
 
       const assistantSummary = response.content.trim() || "Calling browser tools.";
@@ -704,11 +764,38 @@ export class LlmConnectionManager {
       }
     }
 
-    return {
-      content: "I stopped after the browser tool limit for this turn.",
-      toolRuns,
-      connection: this.connectionSummary(config),
-    };
+    // Hit the tool-round budget: ask for a final answer with no further tools so
+    // the user gets a real response from what was gathered, not a dead end.
+    try {
+      const wrap = await this.sendMessagesForConfig(
+        config,
+        [
+          ...messages,
+          {
+            role: "user",
+            content:
+              "You've reached the tool-use limit for this turn. Do not call any more tools. " +
+              "Give your best final answer to the user from what you've gathered, and note briefly if anything is left to finish.",
+          },
+        ],
+        [],
+        { maxTokens: 1024 }
+      );
+      return {
+        content:
+          wrap.content.trim() ||
+          "I gathered some results but ran out of browser tool steps for this turn — ask me to continue.",
+        toolRuns,
+        connection: this.connectionSummary(config),
+      };
+    } catch {
+      return {
+        content:
+          "I ran out of browser tool steps for this turn. Ask me to continue and I'll pick up where I left off.",
+        toolRuns,
+        connection: this.connectionSummary(config),
+      };
+    }
   }
 
   private async sendMessagesForConfig(
@@ -827,24 +914,38 @@ export class LlmConnectionManager {
       payload.tool_choice = options.connectionTest || options.requireToolUse ? "required" : "auto";
     }
 
-    const first = await postJson(endpoint, headers, payload);
-    let body = first.body;
-    let status = first.status;
-    if (!first.ok && isToolOrTemplateLimitation(status, body) && tools.length > 0) {
+    let { ok, status, body } = await postJson(endpoint, headers, payload);
+
+    // "Thinking"/reasoning models (e.g. DeepSeek thinking, some o-series) reject
+    // a forced or even explicit tool_choice. Degrade gracefully while keeping the
+    // tools available: required -> auto -> omit the field entirely.
+    if (
+      !ok &&
+      isToolChoiceLimitation(status, body) &&
+      payload.tool_choice &&
+      payload.tool_choice !== "auto"
+    ) {
+      payload.tool_choice = "auto";
+      ({ ok, status, body } = await postJson(endpoint, headers, payload));
+    }
+    if (!ok && isToolChoiceLimitation(status, body) && "tool_choice" in payload) {
+      delete payload.tool_choice;
+      ({ ok, status, body } = await postJson(endpoint, headers, payload));
+    }
+
+    // Model can't do tool/function calling or the universal chat template at all:
+    // drop tools and fold roles into a single user turn.
+    if (!ok && isToolOrTemplateLimitation(status, body) && tools.length > 0) {
       const retryPayload = {
         ...payload,
         messages: buildOpenAiMessages(normalizeForUniversalTemplate(messages)),
         tools: undefined,
         tool_choice: undefined,
       };
-      const retry = await postJson(endpoint, headers, retryPayload);
-      body = retry.body;
-      status = retry.status;
-      if (!retry.ok) throw new Error(`HTTP ${status}: ${trimForDisplay(body, 600)}`);
-    } else if (!first.ok) {
-      throw new Error(`HTTP ${status}: ${trimForDisplay(body, 600)}`);
+      ({ ok, status, body } = await postJson(endpoint, headers, retryPayload));
     }
 
+    if (!ok) throw new Error(`HTTP ${status}: ${trimForDisplay(body, 600)}`);
     return parseOpenAiResponse(body);
   }
 
@@ -883,17 +984,30 @@ export class LlmConnectionManager {
       payload.tool_choice = { type: options.connectionTest || options.requireToolUse ? "any" : "auto" };
     }
 
-    const response = await postJson(
-      endpoint,
-      {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      payload
-    );
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${trimForDisplay(response.body, 600)}`);
-    return parseAnthropicResponse(response.body);
+    const headers = {
+      "Content-Type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+    };
+    let { ok, status, body } = await postJson(endpoint, headers, payload);
+
+    // Extended-thinking models reject a forced tool_choice; fall back to auto, then omit.
+    if (
+      !ok &&
+      isToolChoiceLimitation(status, body) &&
+      payload.tool_choice &&
+      (payload.tool_choice as { type?: string }).type !== "auto"
+    ) {
+      payload.tool_choice = { type: "auto" };
+      ({ ok, status, body } = await postJson(endpoint, headers, payload));
+    }
+    if (!ok && isToolChoiceLimitation(status, body) && "tool_choice" in payload) {
+      delete payload.tool_choice;
+      ({ ok, status, body } = await postJson(endpoint, headers, payload));
+    }
+
+    if (!ok) throw new Error(`HTTP ${status}: ${trimForDisplay(body, 600)}`);
+    return parseAnthropicResponse(body);
   }
 
   private async sendGoogle(
@@ -1020,7 +1134,13 @@ export class LlmConnectionManager {
 
   private async dispatchBrowserTabs(args: Record<string, unknown>): Promise<unknown> {
     const controller = this.getController();
-    const action = (stringArg(args, "action") || "list").toLowerCase();
+    // "op" accepted as an alias for "action" — the generic `browser` JSON router and
+    // external docs use op:new_tab/switch_tab/..., and models carry that habit here.
+    const action = (stringArg(args, "action") || stringArg(args, "op") || "list")
+      .toLowerCase()
+      .replace(/^(new_tab|create)$/, "new")
+      .replace(/^switch_tab$/, "switch")
+      .replace(/^close_tab$/, "close");
     if (action === "new" || action === "new_tab") {
       return controller.createTab(stringArg(args, "url") || undefined, true);
     }
@@ -1041,6 +1161,9 @@ export class LlmConnectionManager {
       "You are connected to LM_Browser. Use the browser bridge tools to operate the visible browser on the user's command. " +
       "Use browser_navigate for in-app navigation, browser_snapshot or browser_get_text to inspect the page, " +
       "browser_click/browser_fill/browser_type/browser_press_key/browser_scroll to act, and done when the task is complete. " +
+      "Work efficiently: prefer the fewest tool calls and don't re-inspect the page unless something changed. " +
+      "To search the web, navigate directly to the results URL (e.g. https://www.google.com/search?q=YOUR+QUERY) instead of typing into a search box. " +
+      "If the user's request is ambiguous or missing a key detail, call ask_user to ask ONE concise clarifying question instead of guessing. " +
       "Never claim a browser action succeeded unless a tool result confirms it. Available tools: " +
       toolNames +
       ".";
@@ -1089,6 +1212,7 @@ export class LlmConnectionManager {
     config.oauthProvider = validOAuthProvider(config.oauthProvider);
     config.cliTimeout = clampNumber(config.cliTimeout, 1, 600, DEFAULT_CONFIG.cliTimeout);
     config.localAIContextSize = clampNumber(config.localAIContextSize, 512, 1_000_000, DEFAULT_CONFIG.localAIContextSize);
+    config.maxToolRounds = clampNumber(config.maxToolRounds, 0, 1000, DEFAULT_CONFIG.maxToolRounds);
     return config;
   }
 
@@ -1109,6 +1233,7 @@ export class LlmConnectionManager {
     next.oauthProvider = validOAuthProvider(next.oauthProvider);
     next.cliTimeout = clampNumber(next.cliTimeout, 1, 600, DEFAULT_CONFIG.cliTimeout);
     next.localAIContextSize = clampNumber(next.localAIContextSize, 512, 1_000_000, DEFAULT_CONFIG.localAIContextSize);
+    next.maxToolRounds = clampNumber(next.maxToolRounds, 0, 1000, DEFAULT_CONFIG.maxToolRounds);
 
     const defaults = this.providerDefaults(next.apiProvider);
     if (input.apiProvider && !input.model && next.connectionType === "ApiKey") {
@@ -1568,7 +1693,7 @@ function numberArg(args: Record<string, unknown>, key: string, fallback: number)
   return Number.isFinite(value) ? value : fallback;
 }
 
-function opToToolName(op: string): string {
+export function opToToolName(op: string): string {
   switch (op) {
     case "navigate":
     case "goto":
@@ -1687,6 +1812,15 @@ function trimForModel(value: string, max: number): string {
 
 function trimForDisplay(value: string, max: number): string {
   return value.length <= max ? value : value.slice(0, max) + "...";
+}
+
+function isToolChoiceLimitation(status: number, body: string): boolean {
+  if (status !== 400 && status !== 422) return false;
+  const lower = body.toLowerCase();
+  return lower.includes("tool_choice")
+    || lower.includes("tool choice")
+    || (lower.includes("thinking mode") && lower.includes("tool"))
+    || (lower.includes("reasoning") && lower.includes("tool_choice"));
 }
 
 function isToolOrTemplateLimitation(status: number, body: string): boolean {

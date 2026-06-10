@@ -1,10 +1,13 @@
 {
   "name": "jobomate",
   "version": "1.0.0",
-  "description": "Jobomate — AI-driven job-hunt assistant with LLM research, drafting, and approval",
+  "description": "Jobomate \u2014 AI-driven job-hunt assistant with LLM research, drafting, and approval",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build:electron && node tests/e2e/agent-loop.e2e.cjs",
     "build": "tsc && vite build && tsc -p tsconfig.electron.json",
     "build:electron": "tsc -p tsconfig.electron.json",
     "set-dev-app-name": "node scripts/set-dev-app-name.cjs",
@@ -25,7 +28,9 @@
     "protocols": [
       {
         "name": "Jobomate OAuth Callback",
-        "schemes": ["jobomate"]
+        "schemes": [
+          "jobomate"
+        ]
       }
     ],
     "files": [
@@ -34,44 +39,58 @@
       "assets/**/*"
     ],
     "extraResources": [
-      { "from": "bin/engine", "to": "engine" }
+      {
+        "from": "bin/engine",
+        "to": "engine"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dir", "dmg", "zip"],
+      "target": [
+        "dir",
+        "dmg",
+        "zip"
+      ],
       "identity": null,
       "icon": "assets/logo.icns"
     },
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "assets/logo.ico"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "assets/logo.png"
     }
   },
   "dependencies": {
+    "express": "^4.21.1",
+    "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zustand": "^5.0.3",
-    "lucide-react": "^0.468.0",
     "uuid": "^11.0.5",
     "ws": "^8.18.0",
-    "express": "^4.21.1"
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@types/express": "^5.0.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.5.13",
-    "@types/express": "^5.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
+    "vitest": "^4.1.8",
     "wait-on": "^8.0.1"
   }
 }

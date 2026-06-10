@@ -62,6 +62,53 @@ export interface BrowserController {
   clearCookies: (tabId?: string) => Promise<{ success: boolean }>;
 }
 
+export interface ControlApiMethod {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+// Single source of truth for the Control API surface. Every case in
+// LLMBrowserServer.dispatch() MUST have exactly one entry here (and vice versa);
+// the unit suite (tests/control-api-parity.test.ts) regexes the dispatch switch
+// and fails on any drift. listTools() is generated from this list, so the
+// advertised catalog can never fall out of sync with what is dispatchable.
+export const CONTROL_API_METHODS: ControlApiMethod[] = [
+  { name: "browser.navigate", description: "Navigate to a URL", parameters: { url: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.go_back", description: "Go back in history", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.go_forward", description: "Go forward in history", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.reload", description: "Reload the current page", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.stop", description: "Stop loading the current page", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.get_content", description: "Get page content as text or HTML", parameters: { format: { type: "string", enum: ["text", "html"], default: "text" }, tabId: { type: "string", optional: true } } },
+  { name: "browser.get_html", description: "Get full page HTML", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.get_text", description: "Get page text content", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.get_title", description: "Get page title", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.get_url", description: "Get current URL", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.execute_js", description: "Execute JavaScript in the page", parameters: { code: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.click", description: "Click an element by CSS selector", parameters: { selector: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.fill", description: "Fill an input field", parameters: { selector: { type: "string", required: true }, value: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.submit", description: "Submit a form (defaults to the first <form>)", parameters: { selector: { type: "string", optional: true, default: "form" }, tabId: { type: "string", optional: true } } },
+  { name: "browser.scroll", description: "Scroll the page to absolute coordinates", parameters: { x: { type: "number", default: 0 }, y: { type: "number", default: 0 }, tabId: { type: "string", optional: true } } },
+  { name: "browser.scroll_to", description: "Scroll an element into view by CSS selector", parameters: { selector: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.hover", description: "Hover an element (dispatches mouseenter/mouseover)", parameters: { selector: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.select", description: "Select a <select> option by value", parameters: { selector: { type: "string", required: true }, value: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.press_key", description: "Press a key on the focused element (keydown/keyup)", parameters: { key: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.upload_file", description: "Not yet supported — always returns uploadSupported:false (programmatic upload needs a native file-picker workflow)", parameters: { selector: { type: "string", optional: true }, path: { type: "string", optional: true } } },
+  { name: "browser.focus", description: "Focus an element by CSS selector", parameters: { selector: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.screenshot", description: "Take a page screenshot (base64 PNG)", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.get_tabs", description: "List open tabs", parameters: {} },
+  { name: "browser.new_tab", description: "Create a new tab", parameters: { url: { type: "string", optional: true }, active: { type: "boolean", default: true } } },
+  { name: "browser.close_tab", description: "Close a tab (active tab if no tabId)", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.switch_tab", description: "Switch to a tab", parameters: { tabId: { type: "string", required: true } } },
+  { name: "browser.wait_for", description: "Wait for an element to appear", parameters: { selector: { type: "string", required: true }, timeout: { type: "number", default: 10000 }, tabId: { type: "string", optional: true } } },
+  { name: "browser.wait_for_timeout", description: "Wait for a fixed delay in milliseconds", parameters: { timeout: { type: "number", default: 1000 } } },
+  { name: "browser.get_cookies", description: "Get cookies", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.set_cookie", description: "Set a cookie", parameters: { cookie: { type: "object", required: true }, tabId: { type: "string", optional: true } } },
+  { name: "browser.clear_cookies", description: "Clear cookies", parameters: { tabId: { type: "string", optional: true } } },
+  { name: "browser.list_tools", description: "List available tools", parameters: {} },
+  { name: "browser.get_info", description: "Get browser information", parameters: {} },
+];
+
 interface LLMToolRequest {
   jsonrpc: "2.0";
   id?: string | number | null;
@@ -375,8 +422,11 @@ export class LLMBrowserServer {
       case "browser.get_cookies":
         return this.controller.getCookies(tabId);
       case "browser.set_cookie":
+        // Accept both the documented nested form {cookie:{...}} and the flat
+        // {name,value,...} form that external clients commonly send.
         return this.controller.setCookie(
-          (params.cookie as Record<string, unknown>) || {},
+          (params.cookie as Record<string, unknown>) ||
+            (params.name !== undefined ? (params as Record<string, unknown>) : {}),
           tabId
         );
       case "browser.clear_cookies":
@@ -513,42 +563,10 @@ export class LLMBrowserServer {
     return { elapsed: timeout };
   }
 
-  private listTools(): {
-    tools: Array<{
-      name: string;
-      description: string;
-      parameters: Record<string, unknown>;
-    }>;
-  } {
-    return {
-      tools: [
-        { name: "browser.navigate", description: "Navigate to a URL", parameters: { url: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-        { name: "browser.go_back", description: "Go back in history", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.go_forward", description: "Go forward in history", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.reload", description: "Reload the current page", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.get_content", description: "Get page content as text or HTML", parameters: { format: { type: "string", enum: ["text", "html"], default: "text" }, tabId: { type: "string", optional: true } } },
-        { name: "browser.get_html", description: "Get full page HTML", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.get_text", description: "Get page text content", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.get_title", description: "Get page title", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.get_url", description: "Get current URL", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.execute_js", description: "Execute JavaScript in the page", parameters: { code: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-        { name: "browser.click", description: "Click an element by CSS selector", parameters: { selector: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-        { name: "browser.fill", description: "Fill an input field", parameters: { selector: { type: "string", required: true }, value: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-        { name: "browser.submit", description: "Submit a form", parameters: { selector: { type: "string", optional: true }, tabId: { type: "string", optional: true } } },
-        { name: "browser.screenshot", description: "Take a page screenshot", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.get_tabs", description: "List open tabs", parameters: {} },
-        { name: "browser.new_tab", description: "Create a new tab", parameters: { url: { type: "string", optional: true }, active: { type: "boolean", default: true } } },
-        { name: "browser.close_tab", description: "Close a tab", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.switch_tab", description: "Switch to a tab", parameters: { tabId: { type: "string", required: true } } },
-        { name: "browser.wait_for", description: "Wait for an element", parameters: { selector: { type: "string", required: true }, timeout: { type: "number", default: 10000 }, tabId: { type: "string", optional: true } } },
-        { name: "browser.scroll", description: "Scroll the page", parameters: { x: { type: "number", default: 0 }, y: { type: "number", default: 0 }, tabId: { type: "string", optional: true } } },
-        { name: "browser.get_cookies", description: "Get cookies", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.set_cookie", description: "Set a cookie", parameters: { cookie: { type: "object", required: true }, tabId: { type: "string", optional: true } } },
-        { name: "browser.clear_cookies", description: "Clear cookies", parameters: { tabId: { type: "string", optional: true } } },
-        { name: "browser.list_tools", description: "List available tools", parameters: {} },
-        { name: "browser.get_info", description: "Get browser information", parameters: {} },
-      ],
-    };
+  private listTools(): { tools: ControlApiMethod[] } {
+    // Generated from CONTROL_API_METHODS so the advertised catalog always matches
+    // every method dispatch() implements (33 methods). Copies guard against mutation.
+    return { tools: CONTROL_API_METHODS.map((method) => ({ ...method })) };
   }
 
   async start(): Promise<number> {
@@ -561,7 +579,7 @@ export class LLMBrowserServer {
       this.server.listen(this.port, "127.0.0.1", () => {
         this.startedAt = Date.now();
         console.log(
-          `[LLM Server] Jobomate control server running on http://127.0.0.1:${this.port}`
+          `[LLM Server] LM_Browser control server running on http://127.0.0.1:${this.port}`
         );
         resolve(this.port);
       });
