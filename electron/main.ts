@@ -36,6 +36,7 @@ const devServerUrl =
   devServerArg?.replace("--dev-server=", "") ||
   "";
 const isDev = !electron.app.isPackaged && Boolean(devServerUrl);
+const WINDOW_STATE_PATH = path.join(electron.app.getPath("userData"), "window-state.json");
 const DEFAULT_HOME = "https://www.google.com";
 const FALLBACK_CONTENT_TOP = 92;
 
@@ -173,9 +174,15 @@ function setupDownloads(): void {
 }
 
 function createMainWindow(): void {
+  let savedBounds: Partial<electron.Rectangle> = {};
+  try {
+    if (fs.existsSync(WINDOW_STATE_PATH)) {
+      savedBounds = JSON.parse(fs.readFileSync(WINDOW_STATE_PATH, "utf-8"));
+    }
+  } catch { /* use defaults */ }
   mainWindow = new electron.BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: savedBounds.width || 1400,
+    height: savedBounds.height || 900,
     minWidth: 800,
     minHeight: 500,
     title: "Jobomate",
@@ -193,6 +200,14 @@ function createMainWindow(): void {
   });
 
   mainWindow.on("resize", updateVisibleBrowserViewBounds);
+
+  const saveWindowState = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try { fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(mainWindow.getBounds())); } catch { /* ignore */ }
+  };
+  mainWindow.on("resize", saveWindowState);
+  mainWindow.on("move", saveWindowState);
+
 
   mainWindow.on("closed", () => {
     mainWindow = null;
