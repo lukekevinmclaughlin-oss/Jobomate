@@ -148,7 +148,7 @@ public sealed class SendRunner
         record.RoleTitle = draft.RoleTitle;
         record.JobPostingId = draft.JobPostingId;
         record.CompanyTargetId = draft.CompanyTargetId;
-        record.EmailDraftId = record.EmailDraftId;
+        record.ThreadId = draft.ThreadId;
         record.Status = status;
         record.LastUpdateAt = _clock.UtcNow;
         if (applied) record.AppliedAt = _clock.UtcNow;

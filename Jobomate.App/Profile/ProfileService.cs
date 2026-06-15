@@ -47,16 +47,25 @@ public sealed class ProfileService
             FileName = fileName,
             OriginalPath = sourcePath,
             StoredPath = dest,
-            ContentType = Path.GetExtension(fileName).ToLowerInvariant() == ".pdf" ? "application/pdf" : "text/plain",
+            ContentType = Path.GetExtension(fileName).ToLowerInvariant() switch
+            {
+                ".pdf" => "application/pdf",
+                ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ".doc" => "application/msword",
+                ".rtf" => "application/rtf",
+                _ => "text/plain",
+            },
             ExtractedText = CvTextExtractor.ExtractText(dest),
         };
         _documents.Upsert(doc);
         return doc;
     }
 
-    /// <summary>Import a CV and build (and persist) the candidate profile from it.</summary>
+    /// <summary>Import a CV (job-seeker) or role brief (recruiter) and build + persist the profile from it.
+    /// In recruiter mode the profile fields hold the ROLE the recruiter is hiring for.</summary>
     public async Task<CandidateProfile> BuildFromCvAsync(
-        string sourcePath, LlmClient? llm, LlmConnectionConfig? cfg, CancellationToken ct = default)
+        string sourcePath, LlmClient? llm, LlmConnectionConfig? cfg, CancellationToken ct = default,
+        AppMode mode = AppMode.JobSeeker)
     {
         var doc = ImportCv(sourcePath);
         var profile = ProfileBuilder.FromCvText(doc.ExtractedText);
@@ -64,7 +73,7 @@ public sealed class ProfileService
 
         if (llm is not null && cfg is not null && !string.IsNullOrWhiteSpace(doc.ExtractedText))
         {
-            try { profile = await EnrichWithLlmAsync(profile, doc.ExtractedText, llm, cfg, ct).ConfigureAwait(false); }
+            try { profile = await EnrichWithLlmAsync(profile, doc.ExtractedText, llm, cfg, mode, ct).ConfigureAwait(false); }
             catch { /* best-effort; the seeded profile is already correct */ }
         }
 
@@ -74,15 +83,20 @@ public sealed class ProfileService
     }
 
     private static async Task<CandidateProfile> EnrichWithLlmAsync(
-        CandidateProfile seed, string cvText, LlmClient llm, LlmConnectionConfig cfg, CancellationToken ct)
+        CandidateProfile seed, string cvText, LlmClient llm, LlmConnectionConfig cfg, AppMode mode, CancellationToken ct)
     {
-        var prompt =
-            "Extract the candidate's full name and location, a concise professional summary (2-3 sentences), a short " +
-            "headline, up to 12 key skills, and EVERY language they list with its proficiency level. " +
-            "Return ONLY minified JSON: {\"fullName\":\"...\",\"location\":\"...\",\"summary\":\"...\",\"headline\":\"...\",\"skills\":[\"...\"],\"languages\":[{\"language\":\"English\",\"level\":\"native\"}]}. " +
-            "For each language use one level from: native, fluent, advanced, intermediate, basic. Include ALL languages the CV mentions, not just the first. " +
-            "Use only facts present in the CV. Never mention layoffs, health, therapy, or any personal circumstances.\n\nCV:\n" +
-            Truncate(cvText, 8000);
+        var prompt = mode == AppMode.Recruiter
+            ? "This document is a ROLE BRIEF / job description the recruiter is hiring for. Extract the role's title as " +
+              "\"headline\", the hiring location, a concise 2-3 sentence summary of what the role involves, up to 12 key " +
+              "skills wanted, and any languages required. Map the role title to BOTH \"fullName\" and \"headline\". " +
+              "Return ONLY minified JSON: {\"fullName\":\"...\",\"location\":\"...\",\"summary\":\"...\",\"headline\":\"...\",\"skills\":[\"...\"],\"languages\":[{\"language\":\"English\",\"level\":\"required\"}]}. " +
+              "Use only facts present in the brief; invent nothing.\n\nROLE BRIEF:\n" + Truncate(cvText, 8000)
+            : "Extract the candidate's full name and location, a concise professional summary (2-3 sentences), a short " +
+              "headline, up to 12 key skills, and EVERY language they list with its proficiency level. " +
+              "Return ONLY minified JSON: {\"fullName\":\"...\",\"location\":\"...\",\"summary\":\"...\",\"headline\":\"...\",\"skills\":[\"...\"],\"languages\":[{\"language\":\"English\",\"level\":\"native\"}]}. " +
+              "For each language use one level from: native, fluent, advanced, intermediate, basic. Include ALL languages the CV mentions, not just the first. " +
+              "Use only facts present in the CV. Never mention layoffs, health, therapy, or any personal circumstances.\n\nCV:\n" +
+              Truncate(cvText, 8000);
 
         var resp = await llm.CompleteAsync(
             cfg,

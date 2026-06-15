@@ -176,6 +176,7 @@ public sealed class JobomateEngine
         var hasCv = HasCv();
         return new
         {
+            mode = s.Preferences.Mode.ToString(),
             connected = LlmConfigured(),
             model = s.LlmConfig.ResolvedModel() ?? "",
             connectionType = s.LlmConfig.ConnectionType.ToString(),
@@ -249,6 +250,8 @@ public sealed class JobomateEngine
     {
         var p = Services.Profile;
         var hasCv = HasCv();
+        var recruiter = Mode == AppMode.Recruiter;
+
         var who = hasCv && !string.IsNullOrWhiteSpace(p.FullName)
             ? $"The user's name is {p.FullName}{(string.IsNullOrWhiteSpace(p.Headline) ? "" : " — " + p.Headline)}{(string.IsNullOrWhiteSpace(p.Location) ? "" : ", based in " + p.Location)} (from their loaded CV). "
               + "Do NOT open every message with \"Hi <name>\"; use their name only occasionally and when it reads naturally."
@@ -257,35 +260,68 @@ public sealed class JobomateEngine
         var myJobs = Services.JobRepo.All().Where(j => j.ThreadId == _activeThreadId).ToList();
         var myDrafts = Services.DraftRepo.All().Where(d => d.ThreadId == _activeThreadId).ToList();
         var myCompanies = Services.CompanyRepo.All().Where(c => c.ThreadId == _activeThreadId).ToList();
-        var state = $"Current state (this chat): {myJobs.Count} job postings collected, {myCompanies.Count} companies collected, {myDrafts.Count(d => d.Status == DraftStatus.Draft)} drafts pending, {myDrafts.Count(d => d.Status == DraftStatus.Approved)} approved.";
+
+        // Domain vocabulary flips with the mode; the underlying pipeline is identical.
+        var rowNoun = recruiter ? "candidates" : "job postings";
+        var draftNoun = recruiter ? "outreach messages" : "drafts";
+        var briefNoun = recruiter ? "role brief" : "CV";
+        var state = $"Current state (this chat): {myJobs.Count} {rowNoun} collected, {myCompanies.Count} companies collected, {myDrafts.Count(d => d.Status == DraftStatus.Draft)} {draftNoun} pending, {myDrafts.Count(d => d.Status == DraftStatus.Approved)} approved.";
 
         var collected = "";
         if (myJobs.Count > 0)
         {
             var rows = myJobs.OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore).Take(25)
-                .Select(j => $"- {j.Title}{(string.IsNullOrWhiteSpace(j.Company) ? "" : " @ " + j.Company)}{(string.IsNullOrWhiteSpace(j.Location) ? "" : " (" + j.Location + ")")}");
-            collected = "\n\nJob postings already collected in this chat (real, in the app — to display them use [[ACTION:list]], don't re-search):\n" + string.Join("\n", rows);
+                .Select(j => $"- {j.Title}{(string.IsNullOrWhiteSpace(j.Company) ? "" : (recruiter ? " @ " : " @ ") + j.Company)}{(string.IsNullOrWhiteSpace(j.Location) ? "" : " (" + j.Location + ")")}");
+            var label = recruiter
+                ? "Candidates already sourced in this chat (real, in the app — title is their headline/role, company is their current employer; to display them use [[ACTION:list]], don't re-search):"
+                : "Job postings already collected in this chat (real, in the app — to display them use [[ACTION:list]], don't re-search):";
+            collected = "\n\n" + label + "\n" + string.Join("\n", rows);
         }
         if (myCompanies.Count > 0)
         {
             var rows = myCompanies.Take(25).Select(c => $"- {c.Name}{(string.IsNullOrWhiteSpace(c.Website) ? "" : " — " + c.Website)}");
-            collected += "\n\nCompanies already collected in this chat (for unsolicited applications):\n" + string.Join("\n", rows);
+            collected += (recruiter
+                ? "\n\nTarget companies in this chat (places to source candidates from):\n"
+                : "\n\nCompanies already collected in this chat (for unsolicited applications):\n") + string.Join("\n", rows);
         }
 
-        var system =
-            "You are the Jobomate assistant — a warm, capable copilot inside a job-search and application-automation browser. " +
-            "Answer the user fully and naturally on ANY topic. " + who + " " + state + " " +
-            "You also have specialised tools. When the user clearly wants one, append the matching directive on its OWN line at the very end of your reply — choose only from:\n" +
-            "[[ACTION:research]] — drive the in-app browser to collect job postings from the user's sites\n" +
-            "[[ACTION:companies]] — drive the browser to collect companies for speculative/unsolicited applications\n" +
-            "[[ACTION:list]] — show the postings/companies already collected\n" +
-            "[[ACTION:draft]] — draft tailored applications for the collected postings (you review before anything sends)\n" +
-            "[[ACTION:prepare]] — put the application emails in the user's Gmail (open Gmail; they log in)\n" +
-            "[[ACTION:approve]] — approve all pending drafts\n" +
-            "[[ACTION:send]] — send due items (dry-run unless a real email account is connected)\n" +
-            "[[ACTION:settings]] — open settings\n" +
-            "Only add a directive when the user actually asks for that action; otherwise reply normally with no directive. " +
-            "When drafting, never invent the user's skills, employers, titles, or experience. Keep replies concise.";
+        string system;
+        if (recruiter)
+        {
+            system =
+                "You are the Jobomate assistant — a warm, capable RECRUITING copilot inside a sourcing-and-outreach browser. " +
+                "You help an HR professional / recruiter find strong CANDIDATES for a role they are hiring for, then draft personalised outreach. " +
+                "Answer the user fully and naturally on ANY topic. " + who + " " + state + " " +
+                $"The loaded \"{briefNoun}\" describes the ROLE the recruiter is hiring for (its title, requirements, and the hiring company) — treat the profile facts as the role, not the user's own CV. " +
+                "You also have specialised tools. When the user clearly wants one, append the matching directive on its OWN line at the very end of your reply — choose only from:\n" +
+                "[[ACTION:research]] — drive the in-app browser to source CANDIDATES (people) matching the role from the user's sites\n" +
+                "[[ACTION:companies]] — drive the browser to collect TARGET COMPANIES to source candidates from\n" +
+                "[[ACTION:list]] — show the candidates already sourced\n" +
+                "[[ACTION:draft]] — draft personalised outreach messages to the sourced candidates (you review before anything sends)\n" +
+                "[[ACTION:prepare]] — put the outreach emails in the user's Gmail (open Gmail; they log in)\n" +
+                "[[ACTION:approve]] — approve all pending outreach\n" +
+                "[[ACTION:send]] — send due outreach (dry-run unless a real email account is connected)\n" +
+                "[[ACTION:settings]] — open settings\n" +
+                "Only add a directive when the user actually asks for that action; otherwise reply normally with no directive. " +
+                "When drafting outreach, never invent a candidate's skills or experience, and never overstate the role or company. Be professional, specific, and respectful of the candidate's time and privacy. Keep replies concise.";
+        }
+        else
+        {
+            system =
+                "You are the Jobomate assistant — a warm, capable copilot inside a job-search and application-automation browser. " +
+                "Answer the user fully and naturally on ANY topic. " + who + " " + state + " " +
+                "You also have specialised tools. When the user clearly wants one, append the matching directive on its OWN line at the very end of your reply — choose only from:\n" +
+                "[[ACTION:research]] — drive the in-app browser to collect job postings from the user's sites\n" +
+                "[[ACTION:companies]] — drive the browser to collect companies for speculative/unsolicited applications\n" +
+                "[[ACTION:list]] — show the postings/companies already collected\n" +
+                "[[ACTION:draft]] — draft tailored applications for the collected postings (you review before anything sends)\n" +
+                "[[ACTION:prepare]] — put the application emails in the user's Gmail (open Gmail; they log in)\n" +
+                "[[ACTION:approve]] — approve all pending drafts\n" +
+                "[[ACTION:send]] — send due items (dry-run unless a real email account is connected)\n" +
+                "[[ACTION:settings]] — open settings\n" +
+                "Only add a directive when the user actually asks for that action; otherwise reply normally with no directive. " +
+                "When drafting, never invent the user's skills, employers, titles, or experience. Keep replies concise.";
+        }
 
         var persona = Services.Preferences.LlmPersona;
         if (!string.IsNullOrWhiteSpace(persona))
@@ -316,7 +352,7 @@ public sealed class JobomateEngine
     {
         var llm = LlmConfigured() ? Services.Llm : null;
         var cfg = LlmConfigured() ? Services.LlmConfig : null;
-        var profile = await Services.Profiles.BuildFromCvAsync(path, llm, cfg, ct).ConfigureAwait(false);
+        var profile = await Services.Profiles.BuildFromCvAsync(path, llm, cfg, ct, Mode).ConfigureAwait(false);
         Services.SaveProfile(profile);
         return new { name = profile.FullName, headline = profile.Headline, location = profile.Location, skills = profile.Skills.Count, languages = profile.Languages.Select(l => l.Language + ":" + l.Level) };
     }
@@ -327,10 +363,12 @@ public sealed class JobomateEngine
     {
         if (!LlmConfigured()) return new { error = "Connect a model first — the browser is driven by your connected model." };
         var g = goal == "companies" ? BrowserGoal.Companies : BrowserGoal.JobPostings;
+        var recruiter = Mode == AppMode.Recruiter;
         var sites = Services.Preferences.SearchSites;
         var url = !string.IsNullOrWhiteSpace(startUrl) ? startUrl!
             : sites.Count > 0 ? sites[0]
             : g == BrowserGoal.Companies ? "https://www.google.com/search?q=companies+hiring"
+            : recruiter ? "https://www.linkedin.com/search/results/people/"
             : "https://www.linkedin.com/jobs/";
 
         var run = new SearchRun { Mode = g == BrowserGoal.Companies ? SearchMode.Unsolicited : SearchMode.RecentJobs, Status = SearchRunStatus.Running };
@@ -349,7 +387,7 @@ public sealed class JobomateEngine
     public object Jobs() => Services.JobRepo.All()
         .Where(j => j.ThreadId == _activeThreadId)
         .OrderByDescending(j => j.Included).ThenByDescending(j => j.RankScore)
-        .Select(j => new { id = j.Id, title = j.Title, company = j.Company, location = j.Location, url = j.SourceUrl, email = j.ContactEmail, included = j.Included }).ToList();
+        .Select(j => new { id = j.Id, title = j.Title, company = j.Company, location = j.Location, url = j.SourceUrl, email = j.ContactEmail, included = j.Included, fitScore = j.FitScore, fitExplanation = j.FitExplanation }).ToList();
 
     public object Companies() => Services.CompanyRepo.All().Where(c => c.ThreadId == _activeThreadId)
         .Select(c => new { id = c.Id, name = c.Name, website = c.Website, location = c.Location, email = c.RecruitingEmail, contact = c.ContactStatus.ToString() }).ToList();
@@ -562,4 +600,181 @@ public sealed class JobomateEngine
 
     public void SaveSites(IEnumerable<string> sites) { var p = Services.Preferences; p.SearchSites = sites.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList(); Services.SavePreferences(p); }
     public void SavePersona(string persona) { var p = Services.Preferences; p.LlmPersona = persona ?? ""; Services.SavePreferences(p); }
+
+    /// <summary>The active app mode (job seeker vs recruiter).</summary>
+    public AppMode Mode => Services.Preferences.Mode;
+
+    /// <summary>Switch between job-seeker and recruiter mode (persisted). Unknown values are ignored.</summary>
+    public object SetMode(string mode)
+    {
+        if (Enum.TryParse<AppMode>(mode, true, out var m))
+        {
+            var p = Services.Preferences;
+            p.Mode = m;
+            Services.SavePreferences(p);
+        }
+        return Status();
+    }
+
+    // ---------------------------------------------------------------- job fit scoring -------
+
+    /// <summary>Build the fit-scoring prompt for a job against the current candidate profile.</summary>
+    internal static string BuildFitPrompt(CandidateProfile profile, JobPosting job) =>
+        "Score how well this job fits the candidate on a scale of 0-100.\n" +
+        "Reply with ONLY: SCORE: <number>\nEXPLANATION: <one short sentence why>.\n\n" +
+        $"CANDIDATE\nHeadline: {profile.Headline}\nSummary: {profile.Summary}\n" +
+        $"Skills: {string.Join(", ", profile.Skills)}\n" +
+        $"Languages: {string.Join(", ", profile.Languages.Select(l => l.Language + " (" + l.Level + ")"))}\n" +
+        $"Experience: {profile.YearsExperience}y\n\n" +
+        $"JOB\nTitle: {job.Title}\nCompany: {job.Company}\nLocation: {job.Location}\n" +
+        $"Description: {Truncate(job.RawDescription, 4000)}";
+
+    /// <summary>Parse the LLM's "SCORE: n / EXPLANATION: ..." reply into a clamped score + explanation.</summary>
+    internal static (double FitScore, string Explanation) ParseFitResponse(string? resp)
+    {
+        var scoreMatch = Regex.Match(resp ?? "", @"SCORE:\s*(\d+)");
+        var explanationMatch = Regex.Match(resp ?? "", @"EXPLANATION:\s*(.+)");
+        var fitScore = scoreMatch.Success && double.TryParse(scoreMatch.Groups[1].Value, out var s) ? Math.Clamp(s, 0, 100) : 0d;
+        var explanation = explanationMatch.Success ? explanationMatch.Groups[1].Value.Trim() : "";
+        return (fitScore, explanation);
+    }
+
+    /// <summary>Score a single job; returns true on a successful LLM scoring, false on any failure.</summary>
+    private async Task<bool> ScoreJobFitCore(JobPosting job)
+    {
+        try
+        {
+            var resp = await Services.Llm.CompleteAsync(
+                Services.LlmConfig,
+                new[]
+                {
+                    new ChatMessage("system", "You score job-candidate fit. Reply with SCORE and EXPLANATION only."),
+                    new ChatMessage("user", BuildFitPrompt(Services.Profile, job)),
+                },
+                new LlmCallOptions(MaxOutputTokens: 200),
+                CancellationToken.None).ConfigureAwait(false);
+
+            var (fitScore, explanation) = ParseFitResponse(resp);
+            job.FitScore = fitScore;
+            job.FitExplanation = explanation;
+            Services.JobRepo.Upsert(job);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Ask the configured LLM to score how well a job matches the candidate (0–100).</summary>
+    public async Task<object> ScoreJobFit(string jobId)
+    {
+        var job = Services.JobRepo.Get(jobId);
+        if (job is null) return new { error = "job not found" };
+        if (!LlmConfigured()) return new { error = "Connect a model first" };
+
+        return await ScoreJobFitCore(job).ConfigureAwait(false)
+            ? new { fitScore = job.FitScore, explanation = job.FitExplanation }
+            : new { error = "Scoring failed" };
+    }
+
+    /// <summary>Score every job in the active thread (sequentially; counts only successful scorings).</summary>
+    public async Task<object> ScoreAllJobs()
+    {
+        if (!LlmConfigured()) return new { error = "Connect a model first" };
+        var jobs = Services.JobRepo.All().Where(j => j.ThreadId == _activeThreadId).ToList();
+        var scored = 0;
+        foreach (var j in jobs)
+            if (await ScoreJobFitCore(j).ConfigureAwait(false)) scored++;
+        return new { scored, of = jobs.Count };
+    }
+
+    // ---------------------------------------------------------------- application tracker -------
+
+    /// <summary>All application records for the active thread, with related job/draft info.</summary>
+    public object Tracker()
+    {
+        var records = Services.RecordRepo.All()
+            .Where(r => r.ThreadId == _activeThreadId)
+            .OrderByDescending(r => r.LastUpdateAt)
+            .Select(r => new
+            {
+                id = r.Id,
+                company = r.Company,
+                roleTitle = r.RoleTitle,
+                status = r.Status.ToString(),
+                createdAt = r.CreatedAt.ToString("o"),
+                lastUpdateAt = r.LastUpdateAt.ToString("o"),
+                appliedAt = r.AppliedAt?.ToString("o"),
+                notes = r.Notes,
+            })
+            .ToList();
+        return records;
+    }
+
+    /// <summary>Update a tracker record's status and optional notes. A null <paramref name="notes"/> leaves notes unchanged.</summary>
+    public object UpdateTracker(string id, string status, string? notes)
+    {
+        var r = Services.RecordRepo.Get(id);
+        if (r is null) return new { error = "record not found" };
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<TrackerStatus>(status, true, out var st))
+            r.Status = st;
+        if (notes is not null) r.Notes = notes;
+        r.LastUpdateAt = DateTimeOffset.UtcNow;
+        if (r.Status == TrackerStatus.Sent && r.AppliedAt is null)
+            r.AppliedAt = DateTimeOffset.UtcNow;
+        Services.RecordRepo.Upsert(r);
+        return new { ok = true };
+    }
+
+    // ---------------------------------------------------------------- cost ledger -------
+
+    /// <summary>Snapshot of every LLM call cost with per-call details and totals.</summary>
+    public object Costs()
+    {
+        var totals = Services.CostLedger.Totals();
+        return new
+        {
+            records = Services.CostLedger.Snapshot().Select(r => new
+            {
+                adapter = r.Adapter,
+                model = r.Model,
+                promptTokens = r.PromptTokens,
+                completionTokens = r.CompletionTokens,
+                usdCost = r.UsdCost,
+                at = r.At.ToString("o"),
+            }).ToList(),
+            totals = new
+            {
+                promptTokens = totals.PromptTokens,
+                completionTokens = totals.CompletionTokens,
+                usdCost = totals.UsdCost,
+            },
+        };
+    }
+
+    // ---------------------------------------------------------------- cover letter PDF -------
+
+    /// <summary>Generate a cover letter PDF for a given draft.</summary>
+    public async Task<object> GenerateCoverLetterPdf(string draftId)
+    {
+        var draft = Services.DraftRepo.Get(draftId);
+        if (draft is null) return new { error = "draft not found" };
+        if (string.IsNullOrWhiteSpace(draft.CoverLetterText))
+            return new { error = "This draft has no cover letter text yet — draft or edit it first." };
+
+        var pdfPath = await Task.Run(() => CoverLetterPdf.Render(
+            draft.CoverLetterText,
+            Services.Profile,
+            draft.Company,
+            draft.RoleTitle,
+            JobomatePaths.DocumentsDir)).ConfigureAwait(false);
+
+        draft.CoverLetterPdfPath = pdfPath;
+        Services.DraftRepo.Upsert(draft);
+
+        return new { path = pdfPath };
+    }
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max];
 }

@@ -1,15 +1,19 @@
 using System;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using UglyToad.PdfPig;
 
 namespace Jobomate.Profile;
 
 /// <summary>
-/// Best-effort text extraction from a loaded CV. PDF goes through PdfPig; plain
-/// text/markdown is read directly. Any failure returns an empty string so the
-/// caller falls back to the known candidate background (per the spec).
+/// Best-effort text extraction from a loaded CV. PDF goes through PdfPig; DOCX
+/// is unzipped and read from word/document.xml; RTF control words are stripped;
+/// plain text/markdown is read directly. Any failure returns an empty string so
+/// the caller falls back to the known candidate background (per the spec).
 /// </summary>
 public static class CvTextExtractor
 {
@@ -23,6 +27,12 @@ public static class CvTextExtractor
             return ext switch
             {
                 ".pdf" => ExtractPdf(path!),
+                ".docx" => ExtractDocx(path!),
+                ".rtf" => ExtractRtf(path!),
+                // Old binary .doc format is not supported — it requires Word Interop
+                // or a third-party library (e.g. Aspose, Tika). The caller will fall
+                // back to the known candidate background.
+                ".doc" => "",
                 ".txt" or ".md" or ".text" => File.ReadAllText(path!).Trim(),
                 _ => "",
             };
@@ -44,5 +54,60 @@ public static class CvTextExtractor
             sb.AppendLine(string.Join(" ", words.Select(w => w.Text)));
         }
         return sb.ToString().Trim();
+    }
+
+    /// <summary>
+    /// Extract text from a DOCX file. A DOCX is a ZIP archive containing XML;
+    /// we read word/document.xml and collect all text nodes.
+    /// </summary>
+    private static string ExtractDocx(string path)
+    {
+        using var zip = ZipFile.OpenRead(path);
+        var docEntry = zip.GetEntry("word/document.xml");
+        if (docEntry is null) return "";
+
+        using var stream = docEntry.Open();
+        var doc = XDocument.Load(stream);
+        // Word namespace: http://schemas.openxmlformats.org/wordprocessingml/2006/main
+        XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        var paragraphs = doc.Descendants(w + "p");
+        var sb = new StringBuilder();
+        foreach (var p in paragraphs)
+        {
+            var texts = p.Descendants(w + "t").Select(t => t.Value);
+            var line = string.Concat(texts);
+            if (!string.IsNullOrWhiteSpace(line))
+                sb.AppendLine(line.Trim());
+        }
+        return sb.ToString().Trim();
+    }
+
+    /// <summary>
+    /// Extract plain text from RTF by stripping control words, groups, and
+    /// destination blocks. This is a best-effort regex approach; complex RTF
+    /// with embedded objects will degrade but still produce readable text.
+    /// </summary>
+    private static string ExtractRtf(string path)
+    {
+        var rtf = File.ReadAllText(path);
+
+        // Remove entire groups that are known destinations (fonttbl, colortbl, stylesheet, etc.).
+        rtf = Regex.Replace(rtf, @"\{\\\w+tbl.*?\}", "", RegexOptions.Singleline);
+        // Remove group braces (recursive-ish: replace innermost groups first via loop).
+        var prev = "";
+        while (rtf != prev)
+        {
+            prev = rtf;
+            rtf = Regex.Replace(rtf, @"\{[^{}]*\}", "");
+        }
+        // Strip remaining control words: backslash + letters + optional space.
+        rtf = Regex.Replace(rtf, @"\\[a-zA-Z]+\s?", " ");
+        // Strip hex escapes: \'xx
+        rtf = Regex.Replace(rtf, @"\\'[0-9a-fA-F]{2}", " ");
+        // Strip unicode escapes: \uNNNN
+        rtf = Regex.Replace(rtf, @"\\u\d+\??", " ");
+        // Collapse whitespace and trim.
+        rtf = Regex.Replace(rtf, @"\s+", " ").Trim();
+        return rtf;
     }
 }

@@ -143,9 +143,24 @@ public static class EngineServer
             case "/api/email/prepare": return await e.PrepareEmailsAsync().ConfigureAwait(false);
             case "/api/email/create-drafts": return await e.CreateGmailDraftsAsync().ConfigureAwait(false);
 
+            // ---- job fit ----
+            case "/api/jobs/score": return await e.ScoreJobFit(S("id")).ConfigureAwait(false);
+            case "/api/jobs/score-all": return await e.ScoreAllJobs().ConfigureAwait(false);
+
+            // ---- application tracker ----
+            case "/api/tracker": return e.Tracker();
+            case "/api/tracker/update": return e.UpdateTracker(S("id"), S("status"), SN("notes"));
+
+            // ---- cost ledger ----
+            case "/api/costs": return e.Costs();
+
+            // ---- cover letter PDF ----
+            case "/api/drafts/cover-letter-pdf": return await e.GenerateCoverLetterPdf(S("id")).ConfigureAwait(false);
+
             // ---- preferences ----
             case "/api/sites": e.SaveSites(Arr("sites")); return e.Status();
             case "/api/persona": e.SavePersona(S("persona")); return e.Status();
+            case "/api/mode": return e.SetMode(S("mode"));
 
             default: return new { error = "unknown endpoint: " + path };
         }

@@ -171,6 +171,41 @@ public class SchedulingTests
         finally { keepalive.Dispose(); }
     }
 
+    // ----- Runner: tracker record inherits the draft's thread (per-chat scoping) -----
+
+    [Fact]
+    public async Task SendRunner_TracksApplication_UnderDraftThread()
+    {
+        var (db, keepalive) = JobomateDb.CreateInMemory();
+        try
+        {
+            var (queue, emails, drafts, records) = Repos(db);
+            var draft = new ApplicationDraft
+            {
+                Company = "X", RoleTitle = "Y", Status = DraftStatus.Approved, ThreadId = "thread-42",
+            };
+            drafts.Upsert(draft);
+            var email = new EmailDraft { ApplicationDraftId = draft.Id, ToAddress = "to@x.example", Subject = "s", Body = "b" };
+            emails.Upsert(email);
+            queue.Upsert(new SendScheduleItem
+            {
+                ApplicationDraftId = draft.Id,
+                EmailDraftId = email.Id,
+                ScheduledAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                Status = SendStatus.Pending,
+            });
+
+            var sent = await NewRunner(queue, emails, drafts, records, new DryRunEmailSender()).RunDueAsync();
+
+            Assert.Equal(1, sent);
+            var record = records.All().Single();
+            Assert.Equal("thread-42", record.ThreadId); // tracker stays scoped to the draft's chat
+            Assert.Equal(TrackerStatus.Sent, record.Status);
+            Assert.NotNull(record.AppliedAt);
+        }
+        finally { keepalive.Dispose(); }
+    }
+
     // ----- Runner: failed send stops the queue -----
 
     [Fact]

@@ -102,6 +102,7 @@ public sealed class SendQueueService
         record.RoleTitle = draft.RoleTitle;
         record.JobPostingId = draft.JobPostingId;
         record.CompanyTargetId = draft.CompanyTargetId;
+        record.ThreadId = draft.ThreadId;
         record.Status = status;
         record.LastUpdateAt = _clock.UtcNow;
         _records.Upsert(record);

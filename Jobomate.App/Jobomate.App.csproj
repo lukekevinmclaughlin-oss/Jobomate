@@ -29,4 +29,8 @@
     <AvaloniaResource Include="Resources/JobomateLogo.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Jobomate.Tests" />
+  </ItemGroup>
+
 </Project>

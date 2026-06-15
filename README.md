@@ -1,9 +1,18 @@
 # Jobomate
 
-Jobomate is an **AI-driven job-hunt assistant** — a hybrid desktop app combining an Electron
-browser shell with a headless C# .NET 8 engine. A connected LLM researches job postings,
-drafts tailored applications, and manages the entire pipeline from discovery to sending —
-all behind a human approval wall.
+Jobomate is an **AI-driven hiring-and-job-hunt assistant** — a hybrid desktop app combining an
+Electron browser shell with a headless C# .NET 8 engine. A connected LLM drives the in-app browser,
+drafts tailored messages, and manages the entire pipeline from discovery to sending — all behind a
+human approval wall.
+
+It works two ways from a single toggle (top of the Jobomate panel):
+
+- **Job seeker** — find work. Research job postings → draft tailored applications → apply.
+- **Recruiter / HR** — find candidates. Source people for a role → draft personalised outreach → reach out.
+
+Both modes share the same pipeline (research → draft → approve → send → track). The mode only flips
+the domain framing of the LLM prompts and the UI labels: in recruiter mode the loaded "CV" becomes the
+**role brief** you're hiring for, collected rows become **candidates**, and drafts become **outreach**.
 
 ## Architecture
 
@@ -83,7 +92,8 @@ Configure in Settings → LLM Connection.
 
 | Endpoint | Purpose |
 |---|---|
-| `/api/status` | Full engine status (LLM, CV, browser, queue) |
+| `/api/status` | Full engine status (mode, LLM, CV, browser, queue) |
+| `/api/mode` | Switch app mode (`JobSeeker` / `Recruiter`) |
 | `/api/chat` | Send a chat message → LLM responds with directives |
 | `/api/cv` | Load a CV file (PDF/DOCX/TXT) |
 | `/api/research` | Run the browser research agent |

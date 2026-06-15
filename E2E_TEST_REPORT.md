@@ -1,8 +1,8 @@
 # Jobomate — End-to-End Test Report (LLM-driven functionality)
 
-**Date:** 2026-06-10 (re-verified from 2026-06-08 baseline)
+**Date:** 2026-06-15 — closed the 5 remaining known issues + stabilisation pass (see the 2026-06-15 section below)
 **Previous test:** 2026-06-08 — DeepSeek (`deepseek-chat`), connected; email dry-run; live engine HTTP API
-**This audit:** Code-verified structural coverage + build verification + UI gap closure verification
+**This audit:** Live endpoint E2E (isolated engine) + new unit tests + build/typecheck verification + bug fixes
 
 ## Verdict
 
@@ -55,13 +55,66 @@ Per `LLM_FUNCTIONALITY_STACK.md` §9, these gaps were documented as open. Verifi
 | Company-drafting UI | ⚙️ Chat/API only | ✅ **CLOSED** | `draft("company", ids)` + company rows + delete/edit in `JobomatePanel.tsx` |
 | GGUF/CLI/Terminal Settings | 🔧 Missing | ✅ **CLOSED** | CliPipe, Terminal, LocalAI (GGUF path) fields in `SettingsPanel.tsx` |
 
-## Remaining Known Issues
+## 2026-06-15 — Remaining Known Issues CLOSED + stabilisation pass
 
-1. **Job `FitScore`** — always 0 (placeholder); ranking still works on other signals
-2. **Application-tracker panel** — not surfaced in the React UI (engine tracks state)
-3. **Per-call cost breakdown** — not surfaced in the React UI (total-sum shown in status)
-4. **Cover-letter PDF button** — renderer exists (QuestPDF) but no button to produce it in the React UI
-5. **`.docx/.doc/.rtf` CV uploads** — accepted by file dialog but **not parsed** (silent fallback to seed profile)
+All 5 previously-remaining known issues are now implemented and verified (endpoints live-tested
+against a headless engine in an isolated `JOBOMATE_DATA_DIR`; deterministic logic locked with new
+unit tests). LLM-dependent output *quality* (scoring/drafting) relies on the 2026-06-08 live run.
+
+| # | Was | Now | Evidence |
+|---|---|---|---|
+| 1 | Job `FitScore` always 0 | ✅ LLM fit scoring | `/api/jobs/score` + `/api/jobs/score-all`; per-job "Score fit" + toolbar "Score"; `Fit: n%` badge. Parser unit-tested (`FitScoreTests`) |
+| 2 | No application-tracker panel | ✅ Tracker tab | `/api/tracker` + `/api/tracker/update`; 4th results tab with per-status dropdown |
+| 3 | No per-call cost breakdown | ✅ Cost ledger panel | `/api/costs`; header `$` button opens per-call ledger + totals |
+| 4 | No cover-letter-PDF button | ✅ Per-draft button | `/api/drafts/cover-letter-pdf` (QuestPDF); `FileDown` button on each draft row |
+| 5 | `.docx/.rtf` CV not parsed | ✅ Parsed | `CvTextExtractor` unzips `word/document.xml` (DOCX) + strips RTF control words; `.doc` returns empty (unsupported). Unit-tested |
+
+### Bug fixes in this pass
+
+- **Tracker thread-scoping** — `ApplicationRecord` gained a `ThreadId`, now populated from the draft in
+  both `UpsertRecord` sites and filtered in `Tracker()`, so the Tracker tab is per-chat like Jobs/Drafts/Companies
+  (was global). Covered by `SchedulingTests.SendRunner_TracksApplication_UnderDraftThread`.
+- **Notes wipe** — the status dropdown sent no `notes`, and the route used the non-null getter, so every
+  status change overwrote `Notes` with `""`. Route now uses the nullable getter (`SN`); absent notes are left unchanged.
+- **`SendRunner` self-assignment** — removed `record.EmailDraftId = record.EmailDraftId;` no-op.
+- **Fit-score prompt** — literal `\n` escapes replaced with real newlines; scoring refactored so
+  `ScoreAllJobs` counts only *successful* scorings; dead `email` local removed; blank-cover-letter guard added.
+- **Live tracker** — frontend now `refreshData()` after manual + auto sends so the Tracker tab stays current.
+
+### Test status (2026-06-15)
+
+| Suite | Result |
+|---|---|
+| C# (`dotnet test`) | ✅ **91 passed** (was 80; +11 for CV docx/rtf, fit-score parsing, tracker thread-scoping) |
+| Frontend (`vitest`) | ✅ 41 passed |
+| Frontend typecheck (`tsc --noEmit`) | ✅ clean |
+| Production build (`npm run build`) | ✅ 1620 modules |
+| C# build (`dotnet build`) | ✅ 0 errors (5 pre-existing Avalonia deprecation warnings in `AssistantView.axaml.cs`, unrelated) |
+
+## 2026-06-15 — Dual-purpose: recruiter / HR mode added
+
+Jobomate is now multipurpose. A header toggle switches between **Job seeker** (find work) and
+**Recruiter** (find candidates). The mode is a prompt + label + research-goal switch with **no
+data-model fork** — the same pipeline (research → draft → approve → send → track) is reused, with the
+"CV" reinterpreted as a **role brief**, collected rows as **candidates**, and drafts as **outreach**.
+
+| Layer | What changes in recruiter mode | Verified |
+|---|---|---|
+| Mode state | `AppMode` enum + `SearchPreferences.Mode`; `/api/mode` GET (via status) + POST; persisted | ✅ live: switch, ignore-bogus, **persists across engine restart** |
+| Chat brain | `BuildMessages` reframes the system prompt + directive descriptions (source candidates / draft outreach) | ✅ build + structural |
+| Research | `BrowserAgent` goal/strategy/`kind` → sources people; default start URL → people search; `"candidates"` routes to the generic row extractor | ✅ build; live graceful-without-LLM |
+| Drafting | `DraftPromptBuilder` flips to candidate-outreach / role-overview with recruiter guardrails (never invent candidate facts, respect privacy) | ✅ unit-tested (`RecruiterModeTests`) |
+| Role brief | `BuildFromCvAsync` extraction prompt becomes role-oriented in recruiter mode | ✅ build |
+| UI | Header mode toggle + adaptive labels (Jobs↔Candidates, Draft↔Draft outreach, Attach CV↔Load role brief, intro/empty states/toasts) | ✅ tsc + vitest + build |
+
+New tests: `RecruiterModeTests` (default mode, outreach-vs-application framing, recruiter guardrails,
+role-overview vs cover-letter) → C# suite now **95 passing**.
+
+### Still open / notes
+
+- `.doc` (legacy binary Word) uploads return empty text (needs Word Interop / Tika) → seed-profile fallback, by design.
+- `ScoreAllJobs` scores every job in the thread sequentially (one LLM call each) — no cap; can be slow/costly on large threads.
+- Tracker is intentionally **per-chat** (consistent with sibling tabs). Flip to global by dropping the `ThreadId` filter in `Tracker()` if a cross-search tracker is preferred.
 
 ## Engine API Endpoints (all verified present)
 

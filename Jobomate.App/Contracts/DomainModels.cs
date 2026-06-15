@@ -14,6 +14,16 @@ public interface IEntity
 // Enums
 // ----------------------------------------------------------------------------
 
+/// <summary>
+/// Who is using the app. The whole pipeline (research → draft → approve → send → track) is
+/// shared; the mode only flips the domain framing of the prompts and labels.
+/// <list type="bullet">
+/// <item><b>JobSeeker</b> — find jobs, apply. "Profile" = the user's CV; collected rows = job postings; drafts = applications.</item>
+/// <item><b>Recruiter</b> — find candidates, reach out. "Profile" = the role brief; collected rows = candidates; drafts = outreach.</item>
+/// </list>
+/// </summary>
+public enum AppMode { JobSeeker, Recruiter }
+
 public enum SearchMode { RecentJobs, Unsolicited }
 
 public enum WorkLocationType { Unclear, Remote, Hybrid, OnSite }
@@ -360,6 +370,8 @@ public sealed class ApplicationRecord : IEntity
     public string JobPostingId { get; set; } = "";
     public string CompanyTargetId { get; set; } = "";
     public string EmailDraftId { get; set; } = "";
+    /// <summary>The chat thread this application belongs to (for per-thread scoping, mirrors the draft).</summary>
+    public string ThreadId { get; set; } = "";
     public string Company { get; set; } = "";
     public string RoleTitle { get; set; } = "";
     public TrackerStatus Status { get; set; } = TrackerStatus.Drafted;

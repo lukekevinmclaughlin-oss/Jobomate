@@ -64,7 +64,11 @@ public sealed class BrowserAgent
     public async Task<BrowserRunResult> RunAsync(string startUrl, BrowserGoal goal, int targetCount, string searchRunId, CancellationToken ct = default)
     {
         var result = new BrowserRunResult();
-        var kind = goal == BrowserGoal.Companies ? "companies" : "jobs";
+        // Recruiter mode sources people; "candidates" != "companies" so the page extractor still runs
+        // its generic row harvester (title/company/location/desc/url), which fits a people listing too.
+        var kind = goal == BrowserGoal.Companies ? "companies"
+                 : _prefs.Mode == AppMode.Recruiter ? "candidates"
+                 : "jobs";
         var jobs = new List<JsonElement>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var history = new List<string>();
@@ -150,7 +154,9 @@ public sealed class BrowserAgent
         MaterializeResults(goal, jobs, searchRunId, result);
         result.Summary = goal == BrowserGoal.Companies
             ? $"Collected {result.Companies.Count} company target(s) in {step} step(s)."
-            : $"Collected {result.Jobs.Count} job posting(s) in {step} step(s).";
+            : _prefs.Mode == AppMode.Recruiter
+                ? $"Sourced {result.Jobs.Count} candidate(s) in {step} step(s)."
+                : $"Collected {result.Jobs.Count} job posting(s) in {step} step(s).";
         return result;
     }
 
@@ -158,13 +164,24 @@ public sealed class BrowserAgent
 
     private List<ChatMessage> BuildMessages(BrowserGoal goal, string kind, string obsJson, int collected, int target, int step, int maxSteps, List<string> history)
     {
+        var recruiter = _prefs.Mode == AppMode.Recruiter;
         var goalText = goal == BrowserGoal.Companies
-            ? "build a list of COMPANIES the user could send a speculative / unsolicited job application to"
-            : "build a list of JOB POSTINGS the user could apply to";
+            ? (recruiter
+                ? "build a list of COMPANIES the recruiter could source candidates from"
+                : "build a list of COMPANIES the user could send a speculative / unsolicited job application to")
+            : (recruiter
+                ? "build a list of CANDIDATES (individual people) who fit the role the recruiter is hiring for — each with their name/headline, current employer, and a profile link"
+                : "build a list of JOB POSTINGS the user could apply to");
 
-        var who = string.IsNullOrWhiteSpace(_profile.FullName) && string.IsNullOrWhiteSpace(_profile.Headline)
-            ? "The user has not loaded a CV yet."
-            : $"The user is {_profile.FullName}{(string.IsNullOrWhiteSpace(_profile.Headline) ? "" : " — " + _profile.Headline)}.";
+        string who;
+        if (recruiter)
+            who = string.IsNullOrWhiteSpace(_profile.Headline)
+                ? "No role brief is loaded yet; source generally strong candidates and capture their headline + current employer."
+                : $"The recruiter is hiring for: {_profile.Headline}{(string.IsNullOrWhiteSpace(_profile.Location) ? "" : " (" + _profile.Location + ")")}. Required skills: {string.Join(", ", _profile.Skills)}. Look for people who match.";
+        else
+            who = string.IsNullOrWhiteSpace(_profile.FullName) && string.IsNullOrWhiteSpace(_profile.Headline)
+                ? "The user has not loaded a CV yet."
+                : $"The user is {_profile.FullName}{(string.IsNullOrWhiteSpace(_profile.Headline) ? "" : " — " + _profile.Headline)}.";
 
         var sb = new StringBuilder();
         sb.Append("You are operating a real web browser (the Jobomate LM Browser) to ").Append(goalText).Append(" for the user. ");
@@ -180,6 +197,8 @@ public sealed class BrowserAgent
         sb.Append("{\"action\":\"finish\"} — stop; the list is good enough\n");
         if (goal == BrowserGoal.Companies)
             sb.Append("Strategy: reach a page that LISTS individual employers/companies (a directory, a 'companies' page, or search results). ");
+        else if (recruiter)
+            sb.Append("Strategy: reach a page that LISTS individual PEOPLE / CANDIDATES — each row showing a person's name or headline AND ideally their current employer (e.g. a professional-network people search, a talent directory, or conference/community member lists). ");
         else
             sb.Append("Strategy: reach a page that LISTS individual JOB POSTINGS — each row showing a specific role title AND a company. ");
         sb.Append("If the current page is a homepage, a category index, or just navigation (e.g. links like 'Programming', 'Design', 'Find Jobs'), do NOT extract yet — first `click` into a category/listing or `type` a search and Enter. ");

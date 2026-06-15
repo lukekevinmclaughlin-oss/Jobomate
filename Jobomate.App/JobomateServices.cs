@@ -109,6 +109,7 @@ public sealed class JobomateServices
         Preferences = LoadPreferences();
         Profile = Profiles.Current();
         DraftPromptBuilder.UserGuidelines = Preferences.LlmPersona;
+        DraftPromptBuilder.Mode = Preferences.Mode;
     }
 
     public bool IsOnboarded => _prefRepo.Get("onboarded") is { } p && p.ValueJson == "true";
@@ -146,6 +147,7 @@ public sealed class JobomateServices
     {
         Preferences = prefs;
         DraftPromptBuilder.UserGuidelines = prefs.LlmPersona;
+        DraftPromptBuilder.Mode = prefs.Mode;
         _prefRepo.Upsert(new UserPreference { Id = "search-prefs", ValueJson = JsonSerializer.Serialize(prefs, JsonOpts) });
     }
 

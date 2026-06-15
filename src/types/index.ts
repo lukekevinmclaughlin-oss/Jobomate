@@ -104,6 +104,39 @@ export interface DownloadItem {
   mimeType: string;
 }
 
+// ─── Jobomate Cost Types ────────────────────────────────────────────────
+
+export interface CostRecord {
+  adapter: string;
+  model: string;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  usdCost: number | null;
+  at: string;
+}
+
+export interface CostTotals {
+  promptTokens: number | null;
+  completionTokens: number | null;
+  usdCost: number | null;
+}
+
+export interface CostsData {
+  records: CostRecord[];
+  totals: CostTotals;
+}
+
+export interface TrackerRow {
+  id: string;
+  company: string;
+  roleTitle: string;
+  status: string;
+  createdAt: string;
+  lastUpdateAt: string;
+  appliedAt: string | null;
+  notes: string;
+}
+
 // ─── History Types ──────────────────────────────────────────────────────
 
 export interface HistoryEntry {

@@ -7,6 +7,10 @@ namespace Jobomate.Filters;
 /// <summary>User-controlled search filters. Persisted as a <see cref="UserPreference"/>.</summary>
 public sealed class SearchPreferences
 {
+    /// <summary>Who is using the app — job seeker (find jobs) or recruiter (find candidates).
+    /// Flips the framing of every LLM prompt and UI label; the pipeline itself is shared.</summary>
+    public AppMode Mode { get; set; } = AppMode.JobSeeker;
+
     /// <summary>Acceptable required languages. Default: English only (strict).</summary>
     public List<string> AcceptedLanguages { get; set; } = new() { "English" };
 
