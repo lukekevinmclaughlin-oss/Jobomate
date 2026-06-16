@@ -28,20 +28,53 @@ async function authHeaders(extra?: Record<string, string>): Promise<Record<strin
   return headers;
 }
 
+// The engine can be unreachable or answer with an error (most notably a 401
+// before the renderer's auth token is in sync with a freshly (re)started engine).
+// In those cases we must NOT hand the raw error body back to the UI: a non-OK
+// JSON body like `{ error: "unauthorized" }` is truthy and would slip past the
+// `status && …` / `costs && …` guards yet lack the expected fields, and a list
+// endpoint returning a non-array would make the UI crash on `.slice`/`.map`.
+// So every failed request resolves to `null`; list endpoints further coerce to
+// `[]` via getArray. Callers already treat null as "no data".
 async function post(path: string, body?: unknown): Promise<any> {
   const { base } = await engineCoords();
-  const r = await fetch(base + path, {
-    method: "POST",
-    headers: await authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify(body ?? {}),
-  });
-  return r.json();
+  try {
+    const r = await fetch(base + path, {
+      method: "POST",
+      headers: await authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body ?? {}),
+    });
+    if (!r.ok) {
+      console.warn(`[jobomate/api] POST ${path} -> HTTP ${r.status}`);
+      return null;
+    }
+    return await r.json();
+  } catch (err) {
+    console.warn(`[jobomate/api] POST ${path} failed:`, err);
+    return null;
+  }
 }
 
 async function get(path: string): Promise<any> {
   const { base } = await engineCoords();
-  const r = await fetch(base + path, { headers: await authHeaders() });
-  return r.json();
+  try {
+    const r = await fetch(base + path, { headers: await authHeaders() });
+    if (!r.ok) {
+      console.warn(`[jobomate/api] GET ${path} -> HTTP ${r.status}`);
+      return null;
+    }
+    return await r.json();
+  } catch (err) {
+    console.warn(`[jobomate/api] GET ${path} failed:`, err);
+    return null;
+  }
+}
+
+// List endpoints must always yield a real array so the UI can map/slice over the
+// result even when the engine errors. Anything that isn't an array becomes [].
+async function getArray<T>(path: string): Promise<T[]> {
+  const data = await get(path);
+  return Array.isArray(data) ? data : [];
 }
 
 export type AppMode = "JobSeeker" | "Recruiter";
@@ -123,9 +156,9 @@ export const engine = {
   chat: (text: string): Promise<ChatReply> => post("/api/chat", { text }),
   research: (goal: "jobs" | "companies", url?: string): Promise<any> =>
     post("/api/research", { goal, url }),
-  jobs: (): Promise<JobRow[]> => get("/api/jobs"),
-  companies: (): Promise<CompanyRow[]> => get("/api/companies"),
-  drafts: (): Promise<DraftRow[]> => get("/api/drafts"),
+  jobs: (): Promise<JobRow[]> => getArray<JobRow>("/api/jobs"),
+  companies: (): Promise<CompanyRow[]> => getArray<CompanyRow>("/api/companies"),
+  drafts: (): Promise<DraftRow[]> => getArray<DraftRow>("/api/drafts"),
   updateJob: (
     id: string,
     patch: Partial<
@@ -163,7 +196,7 @@ export const engine = {
   deleteCompanies: (ids: string[], all = false): Promise<{ deleted: number }> =>
     post("/api/companies/delete-bulk", { ids, all }),
   // ---- chat threads ----
-  threads: (): Promise<ThreadRow[]> => get("/api/threads"),
+  threads: (): Promise<ThreadRow[]> => getArray<ThreadRow>("/api/threads"),
   newThread: (): Promise<{ id: string; title: string; messages: any[] }> =>
     post("/api/thread/new"),
   switchThread: (id: string): Promise<ThreadMessages> =>
@@ -195,7 +228,7 @@ export const engine = {
     post("/api/llm/connect", { connect }),
   // ---- costs & tracker ----
   costs: (): Promise<any> => get("/api/costs"),
-  tracker: (): Promise<any> => get("/api/tracker"),
+  tracker: (): Promise<any[]> => getArray("/api/tracker"),
   updateTracker: (
     id: string,
     status: string,

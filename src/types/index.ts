@@ -40,7 +40,7 @@ export interface BrowserSettings {
   llmServerPort: number;
   llmServerAutoStart: boolean;
   enableLLMServer: boolean;
-  theme: "system" | "light" | "dark";
+  theme: "light" | "dark";
   showBookmarkBar: boolean;
   downloadPath: string;
   clearDataOnExit: boolean;

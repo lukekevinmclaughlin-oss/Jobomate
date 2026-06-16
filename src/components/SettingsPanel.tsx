@@ -614,7 +614,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
                 value={localSettings.theme}
                 onChange={(event) => updateBrowserSetting("theme", event.target.value)}
               >
-                <option value="system">System</option>
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
               </select>

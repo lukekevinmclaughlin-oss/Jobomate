@@ -72,6 +72,11 @@ try {
   const saved = localStorage.getItem("llm_browser_settings");
   if (saved) {
     const parsed = JSON.parse(saved);
+    // The app no longer follows the OS appearance, so a legacy persisted
+    // "system" theme is coerced to the light default.
+    if (parsed && typeof parsed === "object" && parsed.theme === "system") {
+      parsed.theme = "light";
+    }
     useSettingsStore.getState().updateSettings(parsed);
   }
 } catch {

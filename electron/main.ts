@@ -1030,6 +1030,14 @@ function setupIpcHandlers(
     return { path: downloadDirectory() };
   });
 
+  // The renderer drives the app appearance (light by default, dark only when the
+  // user picks it in Settings). Mirror that onto nativeTheme so embedded web
+  // content matches and never follows the OS system appearance.
+  electron.ipcMain.handle("theme:set-appearance", (_event, appearance: string) => {
+    electron.nativeTheme.themeSource = appearance === "dark" ? "dark" : "light";
+    return { success: true };
+  });
+
   electron.ipcMain.handle("shell:open-external", (_event, url: string) => {
     if (!/^https?:\/\//i.test(url)) {
       throw new Error("Only http and https URLs can be opened externally");

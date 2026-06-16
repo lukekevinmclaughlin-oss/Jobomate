@@ -242,6 +242,9 @@ interface BrowserAPI {
   engine: {
     info: () => Promise<{ port: number; token: string }>;
   };
+  theme: {
+    setAppearance: (appearance: "light" | "dark") => Promise<{ success: boolean }>;
+  };
   window: {
     setBrowserBounds: (bounds: {
       x: number;

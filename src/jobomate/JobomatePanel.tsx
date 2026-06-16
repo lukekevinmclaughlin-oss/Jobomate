@@ -195,7 +195,7 @@ export const JobomatePanel: React.FC = () => {
   const loadMessages = useCallback(async () => {
     try {
       const t = await engine.threadMessages();
-      setMsgsFrom(t.messages);
+      setMsgsFrom(t?.messages ?? []);
     } catch {
       /* ignore */
     }
@@ -221,7 +221,7 @@ export const JobomatePanel: React.FC = () => {
       setShowChats(false);
       try {
         const t = await engine.switchThread(id);
-        setMsgsFrom(t.messages);
+        setMsgsFrom(t?.messages ?? []);
       } catch {
         /* ignore */
       }
@@ -831,7 +831,7 @@ export const JobomatePanel: React.FC = () => {
             <span>${costs.totals.usdCost?.toFixed(6) ?? "0.000000"}</span>
           </div>
           <div className="jbm__costsList">
-            {costs.records
+            {(costs.records ?? [])
               .slice(-20)
               .reverse()
               .map((r, i) => (

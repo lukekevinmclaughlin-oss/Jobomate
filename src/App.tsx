@@ -183,28 +183,26 @@ const App: React.FC = () => {
   }, [closeActiveTab, createNewTab]);
 
   // Tag the root with the host platform so the UI can reserve space for the
-  // macOS traffic-light window controls (which overlay the tab bar).
+  // macOS traffic-light window controls (which overlay the sidebar brand).
   useEffect(() => {
     const platform = window.browserAPI?.platform;
     document.documentElement.dataset.platform = platform ?? "web";
   }, []);
 
-  // Apply theme
+  // Apply theme. Appearance is driven solely by the user's explicit choice and
+  // never follows the macOS system setting: anything that isn't "dark" (the
+  // default, plus any legacy "system" value) resolves to light.
   useEffect(() => {
     const root = document.documentElement;
-    if (settings.theme === "dark") {
-      root.classList.add("dark");
-      root.classList.remove("light");
-    } else if (settings.theme === "light") {
-      root.classList.add("light");
-      root.classList.remove("dark");
-    } else {
-      root.classList.remove("dark", "light");
-      // System preference
-      if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        root.classList.add("dark");
-      }
-    }
+    const dark = settings.theme === "dark";
+    root.classList.toggle("dark", dark);
+    root.classList.toggle("light", !dark);
+    // Keep embedded web content (the BrowserViews) in step with the chrome so a
+    // "dark" selection darkens visited sites too, while light stays light
+    // regardless of the OS appearance.
+    window.browserAPI?.theme
+      ?.setAppearance(dark ? "dark" : "light")
+      .catch(() => undefined);
   }, [settings.theme]);
 
   const handleSidebarToggle = useCallback(

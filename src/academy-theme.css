@@ -248,6 +248,12 @@ button.primary:hover,
   gap: 8px;
   padding: 6px 8px 12px;
 }
+/* On macOS the native traffic-light window controls are overlaid on the very
+   top-left of the window -- exactly where the sidebar brand sits. Reserve
+   vertical room so the logo and app name are pushed clear of them. */
+[data-platform="darwin"] .academy-sidebar__brand {
+  margin-top: 24px;
+}
 .academy-sidebar__brand img {
   width: 30px;
   height: 30px;

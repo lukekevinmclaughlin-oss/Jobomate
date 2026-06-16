@@ -236,11 +236,9 @@ textarea {
     padding: 4px 8px 0 8px;
 }
 
-/* macOS overlays the traffic-light window controls on the top-left of the
-   draggable tab bar; reserve room so they don't sit on top of the logo. */
-[data-platform="darwin"] .tab-bar {
-    padding-left: 84px;
-}
+/* The native traffic-light controls overlay the sidebar (the window's
+   top-left corner), not the tab bar, so the tab bar needs no left reservation.
+   The reservation is handled on the sidebar brand in academy-theme.css. */
 
 .tab-bar__tabs {
     display: flex;

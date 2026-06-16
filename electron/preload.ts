@@ -90,6 +90,10 @@ contextBridge.exposeInMainWorld("browserAPI", {
     info: (): Promise<{ port: number; token: string }> =>
       ipcRenderer.invoke("jobomate:engine-info"),
   },
+  theme: {
+    setAppearance: (appearance: "light" | "dark") =>
+      ipcRenderer.invoke("theme:set-appearance", appearance),
+  },
   window: {
     setBrowserBounds: (bounds: {
       x: number;
