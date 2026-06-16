@@ -25,13 +25,25 @@ public static class EngineServer
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    private const string TokenHeader = "X-Jobomate-Token";
+
+    /// <summary>
+    /// Per-session shared secret supplied by the Electron host via <c>JOBOMATE_ENGINE_TOKEN</c>.
+    /// When set (always, in the packaged app) every request must present it in the
+    /// <c>X-Jobomate-Token</c> header, which stops any web page the in-app browser visits from
+    /// reaching this loopback API cross-origin. Empty in dev / direct CLI use, where the API stays
+    /// open on loopback for convenience.
+    /// </summary>
+    private static string _authToken = "";
+
     public static void Run(int port)
     {
+        _authToken = Environment.GetEnvironmentVariable("JOBOMATE_ENGINE_TOKEN") ?? "";
         var engine = new JobomateEngine();
         var listener = new HttpListener();
         listener.Prefixes.Add($"http://127.0.0.1:{port}/");
         listener.Start();
-        Console.WriteLine($"[jobomate-engine] listening on http://127.0.0.1:{port}/");
+        Console.WriteLine($"[jobomate-engine] listening on http://127.0.0.1:{port}/ (auth: {(_authToken.Length > 0 ? "token" : "open")})");
 
         while (true)
         {
@@ -50,11 +62,23 @@ public static class EngineServer
     {
         var req = ctx.Request;
         var res = ctx.Response;
-        res.AddHeader("Access-Control-Allow-Origin", "*");
+        // When a session token is required we do NOT advertise a wildcard CORS origin — there is no
+        // legitimate cross-origin caller. The token itself is the real protection; this just avoids
+        // telling a browser the response is cross-origin readable. In open (dev) mode keep it simple.
+        if (_authToken.Length == 0)
+            res.AddHeader("Access-Control-Allow-Origin", "*");
         res.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        res.AddHeader("Access-Control-Allow-Headers", "Content-Type");
+        res.AddHeader("Access-Control-Allow-Headers", "Content-Type, " + TokenHeader);
 
         if (req.HttpMethod == "OPTIONS") { res.StatusCode = 204; res.Close(); return; }
+
+        // Reject any request that doesn't carry the session token (constant-time compare).
+        if (_authToken.Length > 0 && !TokenMatches(req.Headers[TokenHeader]))
+        {
+            Console.Error.WriteLine($"[engine] 401 {req.HttpMethod} {req.Url?.AbsolutePath} (missing/invalid token)");
+            try { await WriteJsonAsync(res, 401, new { error = "unauthorized" }).ConfigureAwait(false); } catch { }
+            return;
+        }
 
         var path = (req.Url?.AbsolutePath ?? "/").TrimEnd('/');
         Console.Error.WriteLine($"[engine] {req.HttpMethod} {path}");
@@ -69,6 +93,18 @@ public static class EngineServer
             Console.Error.WriteLine("[engine] route error: " + ex);
             try { await WriteJsonAsync(res, 500, new { error = ex.Message }).ConfigureAwait(false); } catch { }
         }
+    }
+
+    /// <summary>Constant-time comparison of the presented token against the session token.</summary>
+    private static bool TokenMatches(string? presented) => TokensEqual(presented, _authToken);
+
+    /// <summary>Constant-time string equality (no early-out on first mismatch). Empty/null never matches.</summary>
+    internal static bool TokensEqual(string? presented, string expected)
+    {
+        if (string.IsNullOrEmpty(presented) || string.IsNullOrEmpty(expected)) return false;
+        var a = Encoding.UTF8.GetBytes(presented);
+        var b = Encoding.UTF8.GetBytes(expected);
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(a, b);
     }
 
     private static async Task<object?> RouteAsync(string path, string method, JsonElement body, JobomateEngine e)

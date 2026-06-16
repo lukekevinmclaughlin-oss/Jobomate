@@ -1,7 +1,7 @@
 {
   "name": "jobomate",
   "version": "1.0.0",
-  "description": "Jobomate \u2014 AI-driven job-hunt assistant with LLM research, drafting, and approval",
+  "description": "Jobomate — AI-driven job-hunt assistant with LLM research, drafting, and approval",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -17,7 +17,8 @@
     "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && tsc -p tsconfig.electron.json && electron . --dev-server=http://localhost:5173\"",
     "package": "npm run build && electron-builder",
     "package:mac": "npm run build && electron-builder --mac",
-    "lint": "eslint src/ electron/ --ext .ts,.tsx"
+    "lint": "eslint src/ electron/",
+    "lint:fix": "eslint src/ electron/ --fix"
   },
   "build": {
     "appId": "com.jobomate.app",
@@ -88,7 +89,10 @@
     "concurrently": "^9.1.0",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
+    "eslint": "^9.39.4",
+    "globals": "^17.6.0",
     "typescript": "^5.7.2",
+    "typescript-eslint": "^8.61.1",
     "vite": "^6.0.3",
     "vitest": "^4.1.8",
     "wait-on": "^8.0.1"

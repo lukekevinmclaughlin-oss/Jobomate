@@ -263,7 +263,8 @@ export const JobomatePanel: React.FC = () => {
     id: string,
   ) => {
     const n = new Set(set);
-    n.has(id) ? n.delete(id) : n.add(id);
+    if (n.has(id)) n.delete(id);
+    else n.add(id);
     setFn(n);
   };
 

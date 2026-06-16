@@ -46,9 +46,44 @@ export DOTNET_ROOT="$HOME/.dotnet" && export PATH="$HOME/.dotnet:$PATH"
 dotnet build Jobomate.sln
 dotnet run --project Jobomate.App -- --engine --port 9223
 
-# Run tests
-dotnet test Jobomate.sln   # ~57 C# unit tests
+# Run tests / checks
+dotnet test Jobomate.sln   # 101 C# unit tests
+npm run lint && npx tsc --noEmit && npm test   # eslint + typecheck + 41 vitest tests
 ```
+
+## Configuration
+
+### Environment variables
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `JOBOMATE_ENGINE_TOKEN` | engine + Electron | Per-session shared secret. The Electron host generates one each launch and the engine then requires it (`X-Jobomate-Token` header) on every request. **Unset = open** (dev / direct CLI on loopback). |
+| `JOBOMATE_DATA_DIR` | engine | Override the data directory (default: `~/Library/Application Support/Jobomate` on macOS). Useful for isolated test runs. |
+| `JOBOMATE_DISABLE_KEYCHAIN` | engine | Set to `1` to skip the OS keychain (headless / CI). Secrets then live only in memory for the session. |
+| `JOBOMATE_LLM_KEY` | engine | Optional fallback LLM API key when one isn't stored in the keychain. |
+
+No secrets are committed to the repo; provider keys live in the OS keychain (or memory when keychain is disabled).
+
+## Security
+
+- **Loopback-only servers** — the engine (`:9223`) and the browser-control server (`:9222`) bind `127.0.0.1` only.
+- **Authenticated engine API** — in the packaged app the engine requires a per-session token, so a web page
+  loaded in the in-app browser cannot reach the loopback API cross-origin (it gets `401`). See `JOBOMATE_ENGINE_TOKEN`.
+- **Hardened Electron** — `contextIsolation: true`, `nodeIntegration: false`, sandboxed browser views, an
+  isolated browsing partition, popups denied (opened as tabs), and `shell.openExternal` restricted to http/https.
+- **Secret redaction** — engine logs pass through `SecretRedactor` so API keys / tokens never hit stdout.
+- **Approval wall** — drafts must be explicitly approved before any send; editing reverts to Draft. Sending is
+  dry-run unless a real email account is configured.
+
+## Building & packaging
+
+```bash
+npm run package:mac      # or: npm run package        (mac/win/linux per electron-builder config)
+```
+
+> **Code signing / notarization is not configured** (`mac.identity: null`). Distributable signed builds
+> require a paid Apple Developer ID and a Windows code-signing certificate. Until then, builds are unsigned
+> and will trigger Gatekeeper / SmartScreen warnings. This is the one external blocker to public distribution.
 
 ## Features
 

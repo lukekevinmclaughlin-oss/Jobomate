@@ -33,7 +33,13 @@ function findEngine(): { cmd: string; args: string[] } | null {
   return null;
 }
 
-export function startEngine(): void {
+/**
+ * Start the engine. The optional `token` is a per-session shared secret: when provided it is passed
+ * to the engine via JOBOMATE_ENGINE_TOKEN, and the engine then rejects any HTTP request that does
+ * not present it in the X-Jobomate-Token header. This stops web pages loaded in the in-app browser
+ * from reaching the loopback API cross-origin.
+ */
+export function startEngine(token?: string): void {
   if (engineProc) return;
   const found = findEngine();
   if (!found) {
@@ -46,6 +52,7 @@ export function startEngine(): void {
     env.DOTNET_ROOT = dr;
     env.PATH = dr + ":" + (env.PATH || "");
   }
+  if (token) env.JOBOMATE_ENGINE_TOKEN = token;
   console.log("[jobomate-engine] starting:", found.cmd, found.args.join(" "));
   engineProc = spawn(found.cmd, found.args, { env, stdio: ["ignore", "pipe", "pipe"] });
   engineProc.stdout?.on("data", (d) => console.log("[engine]", d.toString().trim()));

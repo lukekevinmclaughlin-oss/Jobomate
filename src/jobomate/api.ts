@@ -1,17 +1,46 @@
 // Thin client for the headless Jobomate engine (the C# backend the Electron app spawns on :9223).
-const BASE = "http://127.0.0.1:9223";
+const DEFAULT_PORT = 9223;
+
+// Per-session engine coordinates (base URL + auth token), resolved once from the Electron host.
+// Outside Electron (plain `vite` dev, unit tests) there is no host, so we fall back to the default
+// loopback port with no token — matching an engine started without JOBOMATE_ENGINE_TOKEN.
+let coords: Promise<{ base: string; token: string }> | null = null;
+function engineCoords(): Promise<{ base: string; token: string }> {
+  if (!coords) {
+    coords = (async () => {
+      try {
+        const info = await window.browserAPI?.engine?.info();
+        if (info?.port)
+          return { base: `http://127.0.0.1:${info.port}`, token: info.token ?? "" };
+      } catch {
+        /* fall through to default */
+      }
+      return { base: `http://127.0.0.1:${DEFAULT_PORT}`, token: "" };
+    })();
+  }
+  return coords;
+}
+
+async function authHeaders(extra?: Record<string, string>): Promise<Record<string, string>> {
+  const { token } = await engineCoords();
+  const headers: Record<string, string> = { ...extra };
+  if (token) headers["X-Jobomate-Token"] = token;
+  return headers;
+}
 
 async function post(path: string, body?: unknown): Promise<any> {
-  const r = await fetch(BASE + path, {
+  const { base } = await engineCoords();
+  const r = await fetch(base + path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body ?? {}),
   });
   return r.json();
 }
 
 async function get(path: string): Promise<any> {
-  const r = await fetch(BASE + path);
+  const { base } = await engineCoords();
+  const r = await fetch(base + path, { headers: await authHeaders() });
   return r.json();
 }
 

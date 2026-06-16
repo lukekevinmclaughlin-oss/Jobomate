@@ -1,6 +1,7 @@
 import * as electron from "electron";
 import * as path from "path";
 import * as fs from "fs";
+import * as crypto from "crypto";
 import {
   BrowserController,
   getLlmServer,
@@ -8,7 +9,15 @@ import {
   stopLlmServer,
 } from "./llm-server";
 import { LlmConnectionManager } from "./llm-connection";
-import { startEngine, stopEngine } from "./jobomate-engine";
+import { startEngine, stopEngine, ENGINE_PORT } from "./jobomate-engine";
+
+/**
+ * Per-session shared secret for the loopback engine API. Generated fresh each launch, handed to the
+ * engine process (env) and to the renderer (via the `jobomate:engine-info` IPC). The engine rejects
+ * any HTTP request that doesn't echo it back in the X-Jobomate-Token header, so web pages opened in
+ * the in-app browser cannot reach the engine cross-origin.
+ */
+const ENGINE_TOKEN = crypto.randomBytes(32).toString("hex");
 
 interface TabSnapshot {
   id: string;
@@ -47,7 +56,7 @@ const BROWSING_PARTITION = "persist:jobomate-web";
 const browsingSession = (): electron.Session => electron.session.fromPartition(BROWSING_PARTITION);
 
 let mainWindow: electron.BrowserWindow | null = null;
-let browserViews: Map<string, TabRecord> = new Map();
+const browserViews: Map<string, TabRecord> = new Map();
 let activeTabId: string | null = null;
 let tabCounter = 0;
 let browserBounds: electron.Rectangle | null = null;
@@ -923,6 +932,13 @@ function setupIpcHandlers(
     takeScreenshot(tabId)
   );
 
+  // The renderer fetches the engine's loopback base URL + session token from here so api.ts can
+  // authenticate every call. Only the trusted renderer (via contextBridge) can reach this.
+  electron.ipcMain.handle("jobomate:engine-info", () => ({
+    port: ENGINE_PORT,
+    token: ENGINE_TOKEN,
+  }));
+
   electron.ipcMain.handle("llmServer:getStatus", () => {
     const server = getLlmServer(controller);
     return {
@@ -1043,7 +1059,7 @@ function setupIpcHandlers(
 
 electron.app.whenReady().then(() => {
   if (!gotSingleInstanceLock) return; // a duplicate launch: do nothing (the primary already owns the ports)
-  startEngine(); // headless Jobomate job-automation backend (localhost:9223)
+  startEngine(ENGINE_TOKEN); // headless Jobomate job-automation backend (localhost:9223), token-gated
   const controller = createBrowserController();
   llmConnectionManager = new LlmConnectionManager(() => controller);
   setupIpcHandlers(controller, llmConnectionManager);

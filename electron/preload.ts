@@ -85,6 +85,11 @@ contextBridge.exposeInMainWorld("browserAPI", {
   dialog: {
     openCv: (): Promise<string | null> => ipcRenderer.invoke("dialog:open-cv"),
   },
+  // Loopback engine base URL + per-session auth token, so the React client can authenticate calls.
+  engine: {
+    info: (): Promise<{ port: number; token: string }> =>
+      ipcRenderer.invoke("jobomate:engine-info"),
+  },
   window: {
     setBrowserBounds: (bounds: {
       x: number;

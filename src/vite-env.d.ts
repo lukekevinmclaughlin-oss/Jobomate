@@ -239,6 +239,9 @@ interface BrowserAPI {
   dialog: {
     openCv: () => Promise<string | null>;
   };
+  engine: {
+    info: () => Promise<{ port: number; token: string }>;
+  };
   window: {
     setBrowserBounds: (bounds: {
       x: number;

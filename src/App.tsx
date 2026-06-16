@@ -160,12 +160,13 @@ const App: React.FC = () => {
         case "shortcut:close-tab":
           closeActiveTab();
           break;
-        case "shortcut:focus-address-bar":
+        case "shortcut:focus-address-bar": {
           const input = document.querySelector(
             ".address-bar__input"
           ) as HTMLInputElement;
           input?.focus();
           break;
+        }
         case "shortcut:toggle-settings":
           setShowSettings((prev) => !prev);
           break;

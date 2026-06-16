@@ -6,7 +6,6 @@ import logoWebp from "../assets/logo.webp";
 import logoPng from "../assets/logo.png";
 import {
   CheckCircle2,
-  KeyRound,
   Link,
   PlugZap,
   RotateCcw,

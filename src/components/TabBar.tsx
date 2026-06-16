@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import { useTabStore } from "../stores/tabStore";
-import { Plus, X, Pin } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import logoWebp from "../assets/logo.webp";
 import logoPng from "../assets/logo.png";
 
