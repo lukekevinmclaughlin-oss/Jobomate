@@ -1,6 +1,7 @@
 import * as http from "http";
+import * as crypto from "crypto";
 import express = require("express");
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { WebSocket, WebSocketServer } from "ws";
 import { v4 as uuidv4 } from "uuid";
 
@@ -131,12 +132,22 @@ export class LLMBrowserServer {
   private startedAt = 0;
   private controller: BrowserController;
   private port: number;
+  private authToken: string;
 
-  constructor(controller: BrowserController, port = 9222) {
+  constructor(controller: BrowserController, port = 9222, authToken?: string) {
     this.controller = controller;
     this.port = port;
+    // A per-launch bearer token gates every control endpoint (except /health).
+    this.authToken =
+      authToken ||
+      process.env.JOBOMATE_BRIDGE_TOKEN ||
+      crypto.randomBytes(32).toString("hex");
     this.app = express();
     this.setupExpress();
+  }
+
+  getAuthToken(): string {
+    return this.authToken;
   }
 
   setController(controller: BrowserController): void {
@@ -176,6 +187,12 @@ export class LLMBrowserServer {
           ws: `ws://127.0.0.1:${this.port}/ws`,
         },
       });
+    });
+
+    // Everything under /api requires a loopback Host header (anti DNS-rebinding),
+    // a local/absent Origin and a valid bearer token. /health stays open.
+    this.app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+      this.applyGuard(req, res, next);
     });
 
     this.app.post("/api/rpc", async (req: Request, res: Response) => {
@@ -242,9 +259,21 @@ export class LLMBrowserServer {
     this.wss = new WebSocketServer({ server: this.server, path: "/ws" });
 
     this.wss.on("connection", (ws: WebSocket, req) => {
-      const origin = req.headers.origin;
-      if (!this.isAllowedOrigin(origin)) {
+      const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
+      const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+      if (!this.isHostAllowed(host) || !this.isOriginAllowed(origin)) {
         ws.close(1008, "Origin not allowed");
+        return;
+      }
+      let token = this.tokenFromHeaders(req.headers);
+      try {
+        const parsed = new URL(req.url || "/ws", `http://${host || "127.0.0.1"}`);
+        token = parsed.searchParams.get("token") || token;
+      } catch {
+        /* ignore malformed url */
+      }
+      if (!this.tokenMatches(token)) {
+        ws.close(1008, "Unauthorized");
         return;
       }
 
@@ -283,18 +312,62 @@ export class LLMBrowserServer {
     });
   }
 
-  private isAllowedOrigin(origin: string | undefined): boolean {
-    if (!origin) return true;
+  private applyGuard(req: Request, res: Response, next: NextFunction): void {
+    if (!this.isHostAllowed(req.headers.host)) {
+      res.status(403).json({ error: "Forbidden: Host header must be loopback" });
+      return;
+    }
+    if (!this.isOriginAllowed(req.headers.origin)) {
+      res.status(403).json({ error: "Forbidden: cross-origin requests are not allowed" });
+      return;
+    }
+    if (!this.tokenMatches(this.tokenFromHeaders(req.headers))) {
+      res.status(401).json({
+        error:
+          "Unauthorized: missing or invalid bridge token (Authorization: Bearer <token> or X-Jobomate-Bridge-Token)",
+      });
+      return;
+    }
+    next();
+  }
+
+  private isHostAllowed(hostHeader: string | string[] | undefined): boolean {
+    const value = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+    if (!value) return false;
+    const hostname = value.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+    return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+  }
+
+  private isOriginAllowed(origin: string | string[] | undefined): boolean {
+    const value = Array.isArray(origin) ? origin[0] : origin;
+    if (!value) return true;
     try {
-      const parsed = new URL(origin);
-      const localHost =
+      const parsed = new URL(value);
+      return (
         parsed.hostname === "localhost" ||
         parsed.hostname === "127.0.0.1" ||
-        parsed.hostname === "::1";
-      return localHost && parsed.port === "5173";
+        parsed.hostname === "::1"
+      );
     } catch {
-      return origin === "file://";
+      return value === "file://";
     }
+  }
+
+  private tokenFromHeaders(headers: http.IncomingHttpHeaders): string | null {
+    const auth = headers.authorization;
+    if (typeof auth === "string" && /^Bearer\s+/i.test(auth)) {
+      return auth.replace(/^Bearer\s+/i, "").trim();
+    }
+    const custom = headers["x-jobomate-bridge-token"];
+    if (typeof custom === "string" && custom.trim()) return custom.trim();
+    return null;
+  }
+
+  private tokenMatches(provided: string | null): boolean {
+    if (!provided) return false;
+    const a = Buffer.from(provided);
+    const b = Buffer.from(this.authToken);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
   private async handleToolCall(request: LLMToolRequest): Promise<LLMToolResponse> {
@@ -569,7 +642,7 @@ export class LLMBrowserServer {
     return { tools: CONTROL_API_METHODS.map((method) => ({ ...method })) };
   }
 
-  async start(): Promise<number> {
+  async start(attemptsLeft = 10): Promise<number> {
     if (this.isRunning()) return this.port;
 
     return new Promise((resolve, reject) => {
@@ -579,17 +652,23 @@ export class LLMBrowserServer {
       this.server.listen(this.port, "127.0.0.1", () => {
         this.startedAt = Date.now();
         console.log(
-          `[LLM Server] LM_Browser control server running on http://127.0.0.1:${this.port}`
+          `[LLM Server] Jobomate control server running on http://127.0.0.1:${this.port}`
         );
         resolve(this.port);
       });
 
       this.server.on("error", (err: NodeJS.ErrnoException) => {
-        if (err.code === "EADDRINUSE") {
+        if (err.code === "EADDRINUSE" && attemptsLeft > 1) {
           this.port += 1;
           this.server?.close();
           this.server = null;
-          this.start().then(resolve).catch(reject);
+          this.start(attemptsLeft - 1).then(resolve).catch(reject);
+        } else if (err.code === "EADDRINUSE") {
+          reject(
+            new Error(
+              `Jobomate control server could not bind a free port near ${this.port} after 10 attempts`
+            )
+          );
         } else {
           reject(err);
         }

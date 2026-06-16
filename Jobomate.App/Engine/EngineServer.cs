@@ -202,9 +202,15 @@ public static class EngineServer
         }
     }
 
+    private const long MaxBodyBytes = 32 * 1024 * 1024; // 32 MiB (CV uploads/base64 images stay well under)
+
     private static async Task<JsonElement> ReadBodyAsync(HttpListenerRequest req)
     {
         if (!req.HasEntityBody) return default;
+        // Reject oversized bodies up front so a hostile local caller cannot spike
+        // memory by streaming an unbounded request into ReadToEndAsync.
+        if (req.ContentLength64 > MaxBodyBytes)
+            throw new InvalidDataException($"Request body exceeds {MaxBodyBytes} bytes");
         using var reader = new StreamReader(req.InputStream, req.ContentEncoding ?? Encoding.UTF8);
         var text = await reader.ReadToEndAsync().ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(text)) return default;

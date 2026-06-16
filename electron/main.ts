@@ -46,7 +46,31 @@ const devServerUrl =
   "";
 const isDev = !electron.app.isPackaged && Boolean(devServerUrl);
 const WINDOW_STATE_PATH = path.join(electron.app.getPath("userData"), "window-state.json");
+const BRIDGE_AUTH_PATH = path.join(electron.app.getPath("userData"), "bridge-auth.json");
 const DEFAULT_HOME = "https://www.google.com";
+
+// Persist the browser-control server port + per-launch bearer token (0600) so
+// trusted external automation clients can discover how to authenticate.
+function writeBridgeAuthFile(port: number, token: string): void {
+  try {
+    fs.writeFileSync(
+      BRIDGE_AUTH_PATH,
+      JSON.stringify({ port, token, url: `http://127.0.0.1:${port}` }, null, 2),
+      { mode: 0o600 }
+    );
+    fs.chmodSync(BRIDGE_AUTH_PATH, 0o600);
+  } catch (error) {
+    console.error("[LLM Server] Failed to write bridge auth file:", (error as Error).message);
+  }
+}
+
+function removeBridgeAuthFile(): void {
+  try {
+    fs.rmSync(BRIDGE_AUTH_PATH, { force: true });
+  } catch {
+    /* ignore */
+  }
+}
 const FALLBACK_CONTENT_TOP = 92;
 
 // All web browsing happens in a dedicated, persistent session — isolated from the app's own
@@ -946,15 +970,19 @@ function setupIpcHandlers(
       port: server.getPort(),
       connections: server.getConnectionCount(),
       uptime: server.getUptime(),
+      token: server.getAuthToken(),
+      tokenFile: BRIDGE_AUTH_PATH,
     };
   });
   electron.ipcMain.handle("llmServer:getPort", () => getLlmServer(controller).getPort());
   electron.ipcMain.handle("llmServer:start", async (_event, port?: number) => {
     const startedPort = await startLlmServer(controller, port);
+    writeBridgeAuthFile(startedPort, getLlmServer(controller).getAuthToken());
     return { port: startedPort };
   });
   electron.ipcMain.handle("llmServer:stop", async () => {
     await stopLlmServer();
+    removeBridgeAuthFile();
     return { success: true };
   });
 
@@ -1059,6 +1087,10 @@ function setupIpcHandlers(
 
 electron.app.whenReady().then(() => {
   if (!gotSingleInstanceLock) return; // a duplicate launch: do nothing (the primary already owns the ports)
+  // Embedded web content (the browser BrowserViews) must ALWAYS render in light
+  // mode, regardless of the macOS system appearance — forces every web content
+  // to report `prefers-color-scheme: light`.
+  electron.nativeTheme.themeSource = "light";
   startEngine(ENGINE_TOKEN); // headless Jobomate job-automation backend (localhost:9223), token-gated
   const controller = createBrowserController();
   llmConnectionManager = new LlmConnectionManager(() => controller);
@@ -1080,9 +1112,11 @@ electron.app.whenReady().then(() => {
     }
   });
 
-  startLlmServer(controller).catch((error: Error) => {
-    console.error("[LLM Server] Failed to start:", error.message);
-  });
+  startLlmServer(controller)
+    .then((port) => writeBridgeAuthFile(port, getLlmServer(controller).getAuthToken()))
+    .catch((error: Error) => {
+      console.error("[LLM Server] Failed to start:", error.message);
+    });
 
   electron.globalShortcut.register("CommandOrControl+T", () => {
     mainWindow?.webContents.send("shortcut:new-tab");
@@ -1117,6 +1151,7 @@ electron.app.on("window-all-closed", () => {
 
 electron.app.on("will-quit", () => {
   stopLlmServer();
+  removeBridgeAuthFile();
   stopEngine();
   electron.globalShortcut.unregisterAll();
 });
