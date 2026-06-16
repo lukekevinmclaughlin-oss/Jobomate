@@ -6,12 +6,15 @@ import logoWebp from "../assets/logo.webp";
 import logoPng from "../assets/logo.png";
 import {
   CheckCircle2,
+  Cpu,
+  Globe,
   Link,
   PlugZap,
   RotateCcw,
   Save,
   Server,
   Settings,
+  Shield,
   ShieldCheck,
   TerminalSquare,
   Trash2,
@@ -74,10 +77,18 @@ const oauthProviders: LlmOAuthProvider[] = [
   "Custom",
 ];
 
+const CATEGORIES = [
+  { id: "connection", label: "LLM Connection", Icon: Cpu },
+  { id: "browser", label: "Browser", Icon: Globe },
+  { id: "privacy", label: "Privacy & data", Icon: Shield },
+  { id: "bridge", label: "Bridge Server", Icon: Server },
+];
+
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
   const { settings, updateSettings, resetSettings } = useSettingsStore();
   const clearHistory = useHistoryStore((s) => s.clearHistory);
   const clearDownloads = useDownloadStore((s) => s.clearCompleted);
+  const [settingsTab, setSettingsTab] = useState(0);
   const [localSettings, setLocalSettings] = useState({ ...settings });
   const [llmConfig, setLlmConfig] = useState<LlmConnectionConfig | null>(null);
   const [status, setStatus] = useState("Settings ready.");
@@ -231,22 +242,30 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
   };
 
   return (
-    <div className="settings-panel">
-      <div className="settings-panel__header">
-        <div className="settings-panel__brand">
-          <picture>
-            <source srcSet={logoWebp} type="image/webp" />
-            <img src={logoPng} alt="Jobomate logo" width="28" height="28" />
-          </picture>
-          <h2 className="settings-panel__title">Jobomate Settings</h2>
-        </div>
-        <button className="settings-panel__close" onClick={onClose}>
+    <div className="settings-panel academy-settings">
+      <aside className="academy-settings__nav">
+        <div className="academy-settings__title">Settings</div>
+        {CATEGORIES.map((c, i) => (
+          <button
+            key={c.id}
+            type="button"
+            className={"academy-settings__cat" + (settingsTab === i ? " academy-settings__cat--active" : "")}
+            onClick={() => setSettingsTab(i)}
+          >
+            <c.Icon size={18} strokeWidth={1.75} />
+            <span>{c.label}</span>
+          </button>
+        ))}
+      </aside>
+
+      <div className="academy-settings__main">
+        <button className="settings-panel__close" onClick={onClose} aria-label="Close settings">
           <X size={18} />
         </button>
-      </div>
 
-      <div className="settings-panel__content">
-        <section className="settings-section settings-section--connection">
+        <div className="academy-settings__content">
+          {settingsTab === 0 && (
+            <section className="settings-section settings-section--connection">
           <div className="settings-section__heading">
             <PlugZap size={16} />
             <h3>LLM Connection</h3>
@@ -561,9 +580,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
               </button>
             )}
           </div>
-        </section>
+            </section>
+          )}
 
-        <section className="settings-section">
+          {settingsTab === 1 && (
+            <section className="settings-section">
           <div className="settings-section__heading">
             <Settings size={16} />
             <h3>Browser</h3>
@@ -617,9 +638,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
               />
             </label>
           </div>
-        </section>
+            </section>
+          )}
 
-        <section className="settings-section">
+          {settingsTab === 2 && (
+            <section className="settings-section">
           <div className="settings-section__heading">
             <ShieldCheck size={16} />
             <h3>Privacy &amp; data</h3>
@@ -659,9 +682,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
             </button>
             {clearMsg && <p className="settings-status">{clearMsg}</p>}
           </div>
-        </section>
+            </section>
+          )}
 
-        <section className="settings-section">
+          {settingsTab === 3 && (
+            <section className="settings-section">
           <div className="settings-section__heading">
             <TerminalSquare size={16} />
             <h3>Bridge Server</h3>
@@ -694,18 +719,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
               />
             </label>
           </div>
-        </section>
-      </div>
+            </section>
+          )}
+        </div>
 
-      <div className="settings-panel__footer">
-        <button className="settings-panel__btn-reset" onClick={handleReset} disabled={busy}>
-          <RotateCcw size={14} />
-          Reset Browser
-        </button>
-        <button className="settings-panel__btn-save" onClick={handleSave} disabled={busy}>
-          <Save size={14} />
-          Save
-        </button>
+        <div className="settings-panel__footer">
+          <button className="settings-panel__btn-reset" onClick={handleReset} disabled={busy}>
+            <RotateCcw size={14} />
+            Reset Browser
+          </button>
+          <button className="settings-panel__btn-save" onClick={handleSave} disabled={busy}>
+            <Save size={14} />
+            Save
+          </button>
+        </div>
       </div>
     </div>
   );
