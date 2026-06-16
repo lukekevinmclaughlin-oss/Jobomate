@@ -16,7 +16,7 @@ const defaultSettings: BrowserSettings = {
   llmServerPort: 9222,
   llmServerAutoStart: true,
   enableLLMServer: true,
-  theme: "system",
+  theme: "light",
   showBookmarkBar: true,
   downloadPath: "",
   clearDataOnExit: false,

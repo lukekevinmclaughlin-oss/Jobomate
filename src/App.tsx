@@ -5,6 +5,7 @@ import { BrowserView } from "./components/BrowserView";
 import { BookmarkBar } from "./components/BookmarkBar";
 import { LLMStatus } from "./components/LLMStatus";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { AcademySidebar } from "./components/AcademySidebar";
 import { JobomatePanel } from "./jobomate/JobomatePanel";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { DownloadsPanel } from "./components/DownloadsPanel";
@@ -219,6 +220,17 @@ const App: React.FC = () => {
   );
 
   return (
+    <div className="academy-shell">
+      <AcademySidebar
+        brandName="Jobomate"
+        brandInitials="J"
+        onNewTab={createNewTab}
+        onBookmarks={() => handleSidebarToggle("bookmarks")}
+        onHistory={() => handleSidebarToggle("history")}
+        onDownloads={() => handleSidebarToggle("downloads")}
+        onSettings={() => setShowSettings(true)}
+        activeView={showSidebar ? sidebarView : null}
+      />
     <div className="app">
       {/* Tab Bar */}
       <div className="app__tab-bar">
@@ -333,6 +345,7 @@ const App: React.FC = () => {
           <SettingsPanel onClose={() => setShowSettings(false)} />
         </div>
       )}
+    </div>
     </div>
   );
 };

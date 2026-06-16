@@ -1,0 +1,358 @@
+/* =====================================================================
+   LLM Academy look-and-feel, ported as a non-destructive override.
+   Remaps the app's existing design tokens to the LLM Academy palette
+   (warm off-white surfaces, green #17b88b accent, soft borders, rounded
+   corners, Inter / Space Grotesk fonts) and restyles the shared chrome
+   (toolbar, tabs, address bar, settings, buttons). Imported LAST so it
+   wins over the base theme. No JS/markup is required for the recolor.
+   ===================================================================== */
+
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/space-grotesk";
+
+:root {
+  /* Surfaces: white cards on a warm off-white page (LLM Academy) */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f7f7f6;
+  --bg-tertiary: #f0f0f0;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(23, 184, 139, 0.1);
+  --bg-toolbar: #ffffff;
+  --bg-tab-active: #ffffff;
+  --bg-tab-inactive: #f2f2f2;
+  --bg-overlay: rgba(20, 20, 18, 0.32);
+  --bg-settings: #ffffff;
+  --bg-sidebar: #ffffff;
+  --bg-context-menu: #ffffff;
+
+  /* Borders: the faint LLM Academy separators */
+  --border-primary: #ececec;
+  --border-focus: #17b88b;
+
+  /* Text: warm near-black + muted warm gray */
+  --text-primary: #383835;
+  --text-secondary: #858279;
+  --text-disabled: #a8a8a3;
+  --text-link: #17b88b;
+
+  /* Accent: LLM Academy green replaces Chrome blue everywhere */
+  --accent-blue: #17b88b;
+  --accent-blue-hover: #149e78;
+  --accent-red: #e5484d;
+  --accent-green: #17b88b;
+  --accent-yellow: #f2be1a;
+
+  /* Soft, low shadows like LLM Academy */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 14px -4px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 12px 36px -8px rgba(0, 0, 0, 0.18);
+
+  /* Rounder corners */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-full: 9999px;
+
+  /* Fonts */
+  --font-sans: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "Space Grotesk Variable", "Space Grotesk", var(--font-sans);
+  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, monospace;
+
+  /* LLM Academy nav tokens (used by the ported sidebar) */
+  --academy-primary: #17b88b;
+  --academy-page: #fefefd;
+  --academy-nav-fg: #383835;
+  --academy-nav-fg-muted: #858279;
+  --academy-nav-hover: #f0f0f0;
+  --academy-nav-active: #ececec;
+  --academy-border: #f0f0f0;
+}
+
+:root.dark {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #202020;
+  --bg-tertiary: #262626;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(23, 184, 139, 0.16);
+  --bg-toolbar: #161616;
+  --bg-tab-active: #202020;
+  --bg-tab-inactive: #161616;
+  --bg-settings: #1c1c1c;
+  --bg-sidebar: #161616;
+  --bg-context-menu: #242424;
+  --border-primary: #2a2a2a;
+  --text-primary: #ededed;
+  --text-secondary: #9a9a96;
+  --text-disabled: #6a6a66;
+  --text-link: #2bd3a3;
+  --accent-blue: #17b88b;
+  --accent-blue-hover: #2bd3a3;
+  --academy-page: #141414;
+  --academy-nav-fg: #ededed;
+  --academy-nav-fg-muted: #9a9a96;
+  --academy-nav-hover: #242424;
+  --academy-nav-active: #2a2a2a;
+  --academy-border: #2a2a2a;
+}
+
+/* ---- Global type + page surface --------------------------------- */
+body,
+.app {
+  font-family: var(--font-sans);
+  background: var(--academy-page);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4,
+.settings-panel__title,
+.tab-bar__brand {
+  font-family: var(--font-heading);
+  letter-spacing: -0.01em;
+}
+
+/* ---- Toolbar / tab bar: white, soft bottom hairline ------------- */
+.app__toolbar,
+.app__tab-bar,
+.tab-bar {
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--academy-border);
+}
+
+/* Toolbar icon buttons -> round, light hover (LLM Academy nav buttons) */
+.toolbar-btn,
+.address-bar__nav-btn {
+  border-radius: var(--radius-full);
+  color: var(--academy-nav-fg-muted);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.toolbar-btn:hover,
+.address-bar__nav-btn:hover {
+  background: var(--academy-nav-hover);
+  color: var(--academy-nav-fg);
+}
+
+/* Address bar -> rounded pill input */
+.address-bar__input,
+.address-bar {
+  border-radius: var(--radius-full);
+}
+.address-bar__input:focus,
+.address-bar__input:focus-within {
+  border-color: var(--academy-primary);
+  box-shadow: 0 0 0 3px rgba(23, 184, 139, 0.18);
+}
+
+/* Tabs -> rounded top, active = white card */
+.tab {
+  border-radius: 12px 12px 0 0;
+}
+.tab--active {
+  background: var(--bg-tab-active);
+}
+
+/* New-tab + generic primary buttons -> green pill */
+.tab-bar__new-tab-btn:hover {
+  background: var(--academy-nav-hover);
+  border-radius: var(--radius-full);
+}
+
+/* Generic buttons styled like LLM Academy (rounded-full, green primary) */
+button.primary,
+.btn-primary,
+.settings-btn--primary,
+.settings-segmented__item--active {
+  background: var(--academy-primary);
+  color: #fff;
+  border-radius: var(--radius-full);
+}
+button.primary:hover,
+.btn-primary:hover,
+.settings-btn--primary:hover {
+  background: var(--accent-blue-hover);
+}
+
+/* ---- Settings modal: LLM Academy card + rounded controls -------- */
+.app__settings-overlay {
+  background: var(--bg-overlay);
+  backdrop-filter: blur(2px);
+}
+.settings-panel {
+  border-radius: var(--radius-lg);
+  background: var(--bg-settings);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--academy-border);
+}
+.settings-section {
+  border-radius: var(--radius-md);
+}
+.settings-field input,
+.settings-field select,
+.settings-field textarea,
+.settings-input {
+  border-radius: var(--radius-sm);
+}
+.settings-field input:focus,
+.settings-field select:focus,
+.settings-field textarea:focus {
+  border-color: var(--academy-primary);
+  box-shadow: 0 0 0 3px rgba(23, 184, 139, 0.18);
+  outline: none;
+}
+.settings-segmented {
+  border-radius: var(--radius-full);
+}
+.settings-segmented__item {
+  border-radius: var(--radius-full);
+}
+.settings-panel__close {
+  border-radius: var(--radius-full);
+}
+.settings-panel__close:hover {
+  background: var(--academy-nav-hover);
+}
+
+/* ---- Scrollbars: quiet, rounded (LLM Academy) ------------------- */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+:root.dark *::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: padding-box;
+}
+
+/* =====================================================================
+   Ported LLM Academy left sidebar (rendered by AcademySidebar.tsx)
+   ===================================================================== */
+.academy-sidebar {
+  width: 232px;
+  flex: 0 0 232px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--academy-border);
+  padding: 10px 8px;
+  user-select: none;
+  overflow: hidden;
+}
+.academy-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 12px;
+}
+.academy-sidebar__brand img {
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  object-fit: cover;
+}
+.academy-sidebar__brand-name {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 19px;
+  color: var(--academy-nav-fg);
+}
+.academy-sidebar__badge {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--academy-nav-fg-muted);
+  border: 1px solid var(--academy-border);
+  border-radius: 9999px;
+  padding: 2px 5px;
+  text-transform: uppercase;
+}
+.academy-sidebar__section {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--academy-nav-fg-muted);
+  padding: 12px 12px 4px;
+}
+.academy-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--academy-nav-fg);
+  font-size: 14.5px;
+  font-weight: 500;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.academy-nav-item:hover {
+  background: var(--academy-nav-hover);
+}
+.academy-nav-item--active {
+  background: var(--academy-nav-active);
+}
+.academy-nav-item svg {
+  width: 18px;
+  height: 18px;
+  color: var(--academy-nav-fg-muted);
+  flex: 0 0 auto;
+}
+.academy-sidebar__spacer {
+  flex: 1 1 auto;
+}
+.academy-sidebar__footer {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border-radius: 14px;
+  cursor: pointer;
+}
+.academy-sidebar__footer:hover {
+  background: var(--academy-nav-hover);
+}
+.academy-sidebar__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background: var(--academy-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+.academy-sidebar__footer-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--academy-nav-fg);
+}
+.academy-sidebar__footer-sub {
+  font-size: 11.5px;
+  color: var(--academy-nav-fg-muted);
+}
+
+/* Flex shell: LLM Academy sidebar on the left, the existing app to its right. */
+.academy-shell {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--academy-page);
+}
+.academy-shell > .app {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  height: 100%;
+}
