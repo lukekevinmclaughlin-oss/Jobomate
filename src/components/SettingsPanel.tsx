@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useHistoryStore } from "../stores/historyStore";
 import { useDownloadStore } from "../stores/downloadStore";
-import logoWebp from "../assets/logo.webp";
-import logoPng from "../assets/logo.png";
 import {
   CheckCircle2,
   Cpu,
