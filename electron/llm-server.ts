@@ -33,22 +33,22 @@ export interface BrowserController {
   stop: (tabId?: string) => Promise<{ success: boolean }>;
   getContent: (
     format?: "text" | "html",
-    tabId?: string
+    tabId?: string,
   ) => Promise<Record<string, unknown>>;
   executeJS: (code: string, tabId?: string) => Promise<{ result: unknown }>;
   click: (
     selector: string,
-    tabId?: string
+    tabId?: string,
   ) => Promise<{ success: boolean; found: boolean; selector: string }>;
   fill: (
     selector: string,
     value: string,
-    tabId?: string
+    tabId?: string,
   ) => Promise<{ success: boolean; found: boolean; selector: string }>;
   waitFor: (
     selector: string,
     timeout?: number,
-    tabId?: string
+    tabId?: string,
   ) => Promise<{ found: boolean; selector: string; elapsed: number }>;
   screenshot: (tabId?: string) => Promise<{
     screenshot: string;
@@ -58,7 +58,7 @@ export interface BrowserController {
   getCookies: (tabId?: string) => Promise<{ cookies: unknown[] }>;
   setCookie: (
     cookie: Record<string, unknown>,
-    tabId?: string
+    tabId?: string,
   ) => Promise<{ success: boolean }>;
   clearCookies: (tabId?: string) => Promise<{ success: boolean }>;
 }
@@ -75,39 +75,220 @@ export interface ControlApiMethod {
 // and fails on any drift. listTools() is generated from this list, so the
 // advertised catalog can never fall out of sync with what is dispatchable.
 export const CONTROL_API_METHODS: ControlApiMethod[] = [
-  { name: "browser.navigate", description: "Navigate to a URL", parameters: { url: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.go_back", description: "Go back in history", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.go_forward", description: "Go forward in history", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.reload", description: "Reload the current page", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.stop", description: "Stop loading the current page", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.get_content", description: "Get page content as text or HTML", parameters: { format: { type: "string", enum: ["text", "html"], default: "text" }, tabId: { type: "string", optional: true } } },
-  { name: "browser.get_html", description: "Get full page HTML", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.get_text", description: "Get page text content", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.get_title", description: "Get page title", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.get_url", description: "Get current URL", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.execute_js", description: "Execute JavaScript in the page", parameters: { code: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.click", description: "Click an element by CSS selector", parameters: { selector: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.fill", description: "Fill an input field", parameters: { selector: { type: "string", required: true }, value: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.submit", description: "Submit a form (defaults to the first <form>)", parameters: { selector: { type: "string", optional: true, default: "form" }, tabId: { type: "string", optional: true } } },
-  { name: "browser.scroll", description: "Scroll the page to absolute coordinates", parameters: { x: { type: "number", default: 0 }, y: { type: "number", default: 0 }, tabId: { type: "string", optional: true } } },
-  { name: "browser.scroll_to", description: "Scroll an element into view by CSS selector", parameters: { selector: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.hover", description: "Hover an element (dispatches mouseenter/mouseover)", parameters: { selector: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.select", description: "Select a <select> option by value", parameters: { selector: { type: "string", required: true }, value: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.press_key", description: "Press a key on the focused element (keydown/keyup)", parameters: { key: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.upload_file", description: "Not yet supported — always returns uploadSupported:false (programmatic upload needs a native file-picker workflow)", parameters: { selector: { type: "string", optional: true }, path: { type: "string", optional: true } } },
-  { name: "browser.focus", description: "Focus an element by CSS selector", parameters: { selector: { type: "string", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.screenshot", description: "Take a page screenshot (base64 PNG)", parameters: { tabId: { type: "string", optional: true } } },
+  {
+    name: "browser.navigate",
+    description: "Navigate to a URL",
+    parameters: {
+      url: { type: "string", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.go_back",
+    description: "Go back in history",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.go_forward",
+    description: "Go forward in history",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.reload",
+    description: "Reload the current page",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.stop",
+    description: "Stop loading the current page",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.get_content",
+    description: "Get page content as text or HTML",
+    parameters: {
+      format: { type: "string", enum: ["text", "html"], default: "text" },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.get_html",
+    description: "Get full page HTML",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.get_text",
+    description: "Get page text content",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.get_title",
+    description: "Get page title",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.get_url",
+    description: "Get current URL",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.execute_js",
+    description: "Execute JavaScript in the page",
+    parameters: {
+      code: { type: "string", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.click",
+    description: "Click an element by CSS selector",
+    parameters: {
+      selector: { type: "string", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.fill",
+    description: "Fill an input field",
+    parameters: {
+      selector: { type: "string", required: true },
+      value: { type: "string", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.submit",
+    description: "Submit a form (defaults to the first <form>)",
+    parameters: {
+      selector: { type: "string", optional: true, default: "form" },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.scroll",
+    description: "Scroll the page to absolute coordinates",
+    parameters: {
+      x: { type: "number", default: 0 },
+      y: { type: "number", default: 0 },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.scroll_to",
+    description: "Scroll an element into view by CSS selector",
+    parameters: {
+      selector: { type: "string", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.hover",
+    description: "Hover an element (dispatches mouseenter/mouseover)",
+    parameters: {
+      selector: { type: "string", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.select",
+    description: "Select a <select> option by value",
+    parameters: {
+      selector: { type: "string", required: true },
+      value: { type: "string", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.press_key",
+    description: "Press a key on the focused element (keydown/keyup)",
+    parameters: {
+      key: { type: "string", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.upload_file",
+    description:
+      "Not yet supported — always returns uploadSupported:false (programmatic upload needs a native file-picker workflow)",
+    parameters: {
+      selector: { type: "string", optional: true },
+      path: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.focus",
+    description: "Focus an element by CSS selector",
+    parameters: {
+      selector: { type: "string", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.screenshot",
+    description: "Take a page screenshot (base64 PNG)",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
   { name: "browser.get_tabs", description: "List open tabs", parameters: {} },
-  { name: "browser.new_tab", description: "Create a new tab", parameters: { url: { type: "string", optional: true }, active: { type: "boolean", default: true } } },
-  { name: "browser.close_tab", description: "Close a tab (active tab if no tabId)", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.switch_tab", description: "Switch to a tab", parameters: { tabId: { type: "string", required: true } } },
-  { name: "browser.wait_for", description: "Wait for an element to appear", parameters: { selector: { type: "string", required: true }, timeout: { type: "number", default: 10000 }, tabId: { type: "string", optional: true } } },
-  { name: "browser.wait_for_timeout", description: "Wait for a fixed delay in milliseconds", parameters: { timeout: { type: "number", default: 1000 } } },
-  { name: "browser.get_cookies", description: "Get cookies", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.set_cookie", description: "Set a cookie", parameters: { cookie: { type: "object", required: true }, tabId: { type: "string", optional: true } } },
-  { name: "browser.clear_cookies", description: "Clear cookies", parameters: { tabId: { type: "string", optional: true } } },
-  { name: "browser.list_tools", description: "List available tools", parameters: {} },
-  { name: "browser.get_info", description: "Get browser information", parameters: {} },
+  {
+    name: "browser.new_tab",
+    description: "Create a new tab",
+    parameters: {
+      url: { type: "string", optional: true },
+      active: { type: "boolean", default: true },
+    },
+  },
+  {
+    name: "browser.close_tab",
+    description: "Close a tab (active tab if no tabId)",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.switch_tab",
+    description: "Switch to a tab",
+    parameters: { tabId: { type: "string", required: true } },
+  },
+  {
+    name: "browser.wait_for",
+    description: "Wait for an element to appear",
+    parameters: {
+      selector: { type: "string", required: true },
+      timeout: { type: "number", default: 10000 },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.wait_for_timeout",
+    description: "Wait for a fixed delay in milliseconds",
+    parameters: { timeout: { type: "number", default: 1000 } },
+  },
+  {
+    name: "browser.get_cookies",
+    description: "Get cookies",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.set_cookie",
+    description: "Set a cookie",
+    parameters: {
+      cookie: { type: "object", required: true },
+      tabId: { type: "string", optional: true },
+    },
+  },
+  {
+    name: "browser.clear_cookies",
+    description: "Clear cookies",
+    parameters: { tabId: { type: "string", optional: true } },
+  },
+  {
+    name: "browser.list_tools",
+    description: "List available tools",
+    parameters: {},
+  },
+  {
+    name: "browser.get_info",
+    description: "Get browser information",
+    parameters: {},
+  },
 ];
 
 interface LLMToolRequest {
@@ -122,6 +303,67 @@ interface LLMToolResponse {
   id: string | number | null;
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
+}
+
+// --------------------------------------------------------------------- security guards -----
+// Pure functions extracted from LLMBrowserServer so the control server's security boundary
+// (anti-DNS-rebinding Host check, Origin allowlist, constant-time token compare) is unit-testable
+// without standing up a real HTTP server. The class methods below delegate to these.
+
+/** Loopback hostnames only — guards against DNS-rebinding attacks where a public hostname
+ *  resolves to 127.0.0.1 and bypasses the browser's same-origin policy. */
+export function isHostAllowed(
+  hostHeader: string | string[] | undefined,
+): boolean {
+  const value = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+  if (!value) return false;
+  const hostname = value.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+  return (
+    hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1"
+  );
+}
+
+/** An absent Origin (non-browser client like curl) is allowed; a present Origin must be loopback. */
+export function isOriginAllowed(
+  origin: string | string[] | undefined,
+): boolean {
+  const value = Array.isArray(origin) ? origin[0] : origin;
+  if (!value) return true;
+  try {
+    const parsed = new URL(value);
+    return (
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1"
+    );
+  } catch {
+    return value === "file://";
+  }
+}
+
+/** Pulls the bridge token from either an `Authorization: Bearer ...` header or the
+ *  custom `X-Jobomate-Bridge-Token` header. Returns null if neither is present/well-formed. */
+export function tokenFromHeaders(
+  headers: http.IncomingHttpHeaders,
+): string | null {
+  const auth = headers.authorization;
+  if (typeof auth === "string" && /^Bearer\s+/i.test(auth)) {
+    return auth.replace(/^Bearer\s+/i, "").trim();
+  }
+  const custom = headers["x-jobomate-bridge-token"];
+  if (typeof custom === "string" && custom.trim()) return custom.trim();
+  return null;
+}
+
+/** Constant-time comparison so a remote caller cannot infer the token via timing. */
+export function tokenMatches(
+  provided: string | null,
+  expected: string,
+): boolean {
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 export class LLMBrowserServer {
@@ -221,7 +463,8 @@ export class LLMBrowserServer {
     this.app.get("/api/content", async (req: Request, res: Response) => {
       try {
         const format = req.query.format === "html" ? "html" : "text";
-        const tabId = typeof req.query.tabId === "string" ? req.query.tabId : undefined;
+        const tabId =
+          typeof req.query.tabId === "string" ? req.query.tabId : undefined;
         res.json(await this.controller.getContent(format, tabId));
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -231,7 +474,8 @@ export class LLMBrowserServer {
 
     this.app.get("/api/screenshot", async (req: Request, res: Response) => {
       try {
-        const tabId = typeof req.query.tabId === "string" ? req.query.tabId : undefined;
+        const tabId =
+          typeof req.query.tabId === "string" ? req.query.tabId : undefined;
         res.json(await this.controller.screenshot(tabId));
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -245,7 +489,9 @@ export class LLMBrowserServer {
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
       });
-      res.write(`data: ${JSON.stringify({ type: "connected", port: this.port })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({ type: "connected", port: this.port })}\n\n`,
+      );
       const interval = setInterval(() => {
         res.write(": keepalive\n\n");
       }, 15000);
@@ -259,20 +505,27 @@ export class LLMBrowserServer {
     this.wss = new WebSocketServer({ server: this.server, path: "/ws" });
 
     this.wss.on("connection", (ws: WebSocket, req) => {
-      const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
-      const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
-      if (!this.isHostAllowed(host) || !this.isOriginAllowed(origin)) {
+      const origin = Array.isArray(req.headers.origin)
+        ? req.headers.origin[0]
+        : req.headers.origin;
+      const host = Array.isArray(req.headers.host)
+        ? req.headers.host[0]
+        : req.headers.host;
+      if (!isHostAllowed(host) || !isOriginAllowed(origin)) {
         ws.close(1008, "Origin not allowed");
         return;
       }
-      let token = this.tokenFromHeaders(req.headers);
+      let token = tokenFromHeaders(req.headers);
       try {
-        const parsed = new URL(req.url || "/ws", `http://${host || "127.0.0.1"}`);
+        const parsed = new URL(
+          req.url || "/ws",
+          `http://${host || "127.0.0.1"}`,
+        );
         token = parsed.searchParams.get("token") || token;
       } catch {
         /* ignore malformed url */
       }
-      if (!this.tokenMatches(token)) {
+      if (!tokenMatches(token, this.authToken)) {
         ws.close(1008, "Unauthorized");
         return;
       }
@@ -286,7 +539,7 @@ export class LLMBrowserServer {
           connectionId: connId,
           port: this.port,
           protocol: "json-rpc-2.0",
-        })
+        }),
       );
 
       ws.on("message", async (data) => {
@@ -301,7 +554,7 @@ export class LLMBrowserServer {
               jsonrpc: "2.0",
               id: null,
               error: { code: -32700, message: `Parse error: ${message}` },
-            })
+            }),
           );
         }
       });
@@ -313,15 +566,19 @@ export class LLMBrowserServer {
   }
 
   private applyGuard(req: Request, res: Response, next: NextFunction): void {
-    if (!this.isHostAllowed(req.headers.host)) {
-      res.status(403).json({ error: "Forbidden: Host header must be loopback" });
+    if (!isHostAllowed(req.headers.host)) {
+      res
+        .status(403)
+        .json({ error: "Forbidden: Host header must be loopback" });
       return;
     }
-    if (!this.isOriginAllowed(req.headers.origin)) {
-      res.status(403).json({ error: "Forbidden: cross-origin requests are not allowed" });
+    if (!isOriginAllowed(req.headers.origin)) {
+      res
+        .status(403)
+        .json({ error: "Forbidden: cross-origin requests are not allowed" });
       return;
     }
-    if (!this.tokenMatches(this.tokenFromHeaders(req.headers))) {
+    if (!tokenMatches(tokenFromHeaders(req.headers), this.authToken)) {
       res.status(401).json({
         error:
           "Unauthorized: missing or invalid bridge token (Authorization: Bearer <token> or X-Jobomate-Bridge-Token)",
@@ -331,46 +588,9 @@ export class LLMBrowserServer {
     next();
   }
 
-  private isHostAllowed(hostHeader: string | string[] | undefined): boolean {
-    const value = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
-    if (!value) return false;
-    const hostname = value.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
-    return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
-  }
-
-  private isOriginAllowed(origin: string | string[] | undefined): boolean {
-    const value = Array.isArray(origin) ? origin[0] : origin;
-    if (!value) return true;
-    try {
-      const parsed = new URL(value);
-      return (
-        parsed.hostname === "localhost" ||
-        parsed.hostname === "127.0.0.1" ||
-        parsed.hostname === "::1"
-      );
-    } catch {
-      return value === "file://";
-    }
-  }
-
-  private tokenFromHeaders(headers: http.IncomingHttpHeaders): string | null {
-    const auth = headers.authorization;
-    if (typeof auth === "string" && /^Bearer\s+/i.test(auth)) {
-      return auth.replace(/^Bearer\s+/i, "").trim();
-    }
-    const custom = headers["x-jobomate-bridge-token"];
-    if (typeof custom === "string" && custom.trim()) return custom.trim();
-    return null;
-  }
-
-  private tokenMatches(provided: string | null): boolean {
-    if (!provided) return false;
-    const a = Buffer.from(provided);
-    const b = Buffer.from(this.authToken);
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
-  }
-
-  private async handleToolCall(request: LLMToolRequest): Promise<LLMToolResponse> {
+  private async handleToolCall(
+    request: LLMToolRequest,
+  ): Promise<LLMToolResponse> {
     const id = request.id ?? null;
     const method = request.method;
     const params = request.params || {};
@@ -398,7 +618,7 @@ export class LLMBrowserServer {
 
   private async dispatch(
     method: string,
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
   ): Promise<unknown> {
     const tabId = typeof params.tabId === "string" ? params.tabId : undefined;
 
@@ -416,7 +636,7 @@ export class LLMBrowserServer {
       case "browser.get_content":
         return this.controller.getContent(
           params.format === "html" ? "html" : "text",
-          tabId
+          tabId,
         );
       case "browser.get_html":
         return this.controller.getContent("html", tabId);
@@ -444,12 +664,16 @@ export class LLMBrowserServer {
         return this.controller.fill(
           String(params.selector || ""),
           String(params.value ?? ""),
-          tabId
+          tabId,
         );
       case "browser.submit":
         return this.submitForm(String(params.selector || "form"), tabId);
       case "browser.scroll":
-        return this.scrollPage(Number(params.x || 0), Number(params.y || 0), tabId);
+        return this.scrollPage(
+          Number(params.x || 0),
+          Number(params.y || 0),
+          tabId,
+        );
       case "browser.scroll_to":
         return this.scrollToElement(String(params.selector || ""), tabId);
       case "browser.hover":
@@ -458,7 +682,7 @@ export class LLMBrowserServer {
         return this.selectOption(
           String(params.selector || ""),
           String(params.value ?? ""),
-          tabId
+          tabId,
         );
       case "browser.press_key":
         return this.pressKey(String(params.key || ""), tabId);
@@ -477,7 +701,7 @@ export class LLMBrowserServer {
       case "browser.new_tab":
         return this.controller.createTab(
           typeof params.url === "string" ? params.url : undefined,
-          params.active !== false
+          params.active !== false,
         );
       case "browser.close_tab":
         return this.controller.closeTab(tabId);
@@ -488,7 +712,7 @@ export class LLMBrowserServer {
         return this.controller.waitFor(
           String(params.selector || ""),
           Number(params.timeout || 10000),
-          tabId
+          tabId,
         );
       case "browser.wait_for_timeout":
         return this.waitForTimeout(Number(params.timeout || 1000));
@@ -499,8 +723,10 @@ export class LLMBrowserServer {
         // {name,value,...} form that external clients commonly send.
         return this.controller.setCookie(
           (params.cookie as Record<string, unknown>) ||
-            (params.name !== undefined ? (params as Record<string, unknown>) : {}),
-          tabId
+            (params.name !== undefined
+              ? (params as Record<string, unknown>)
+              : {}),
+          tabId,
         );
       case "browser.clear_cookies":
         return this.controller.clearCookies(tabId);
@@ -537,18 +763,25 @@ export class LLMBrowserServer {
         return { success: true, found: true };
       })()
     `,
-      tabId
+      tabId,
     );
   }
 
-  private async scrollPage(x: number, y: number, tabId?: string): Promise<unknown> {
+  private async scrollPage(
+    x: number,
+    y: number,
+    tabId?: string,
+  ): Promise<unknown> {
     return this.controller.executeJS(
       `window.scrollTo(${JSON.stringify(x)}, ${JSON.stringify(y)}); ({ success: true, scrollX: window.scrollX, scrollY: window.scrollY })`,
-      tabId
+      tabId,
     );
   }
 
-  private async scrollToElement(selector: string, tabId?: string): Promise<unknown> {
+  private async scrollToElement(
+    selector: string,
+    tabId?: string,
+  ): Promise<unknown> {
     const selectorJson = JSON.stringify(selector);
     return this.controller.executeJS(
       `
@@ -559,11 +792,14 @@ export class LLMBrowserServer {
         return { success: true, found: true };
       })()
     `,
-      tabId
+      tabId,
     );
   }
 
-  private async hoverElement(selector: string, tabId?: string): Promise<unknown> {
+  private async hoverElement(
+    selector: string,
+    tabId?: string,
+  ): Promise<unknown> {
     const selectorJson = JSON.stringify(selector);
     return this.controller.executeJS(
       `
@@ -575,14 +811,14 @@ export class LLMBrowserServer {
         return { success: true, found: true };
       })()
     `,
-      tabId
+      tabId,
     );
   }
 
   private async selectOption(
     selector: string,
     value: string,
-    tabId?: string
+    tabId?: string,
   ): Promise<unknown> {
     const selectorJson = JSON.stringify(selector);
     const valueJson = JSON.stringify(value);
@@ -596,7 +832,7 @@ export class LLMBrowserServer {
         return { success: true, found: true };
       })()
     `,
-      tabId
+      tabId,
     );
   }
 
@@ -612,11 +848,14 @@ export class LLMBrowserServer {
         return { success: true, key };
       })()
     `,
-      tabId
+      tabId,
     );
   }
 
-  private async focusElement(selector: string, tabId?: string): Promise<unknown> {
+  private async focusElement(
+    selector: string,
+    tabId?: string,
+  ): Promise<unknown> {
     const selectorJson = JSON.stringify(selector);
     return this.controller.executeJS(
       `
@@ -627,7 +866,7 @@ export class LLMBrowserServer {
         return { success: true, found: true };
       })()
     `,
-      tabId
+      tabId,
     );
   }
 
@@ -652,7 +891,7 @@ export class LLMBrowserServer {
       this.server.listen(this.port, "127.0.0.1", () => {
         this.startedAt = Date.now();
         console.log(
-          `[LLM Server] Jobomate control server running on http://127.0.0.1:${this.port}`
+          `[LLM Server] Jobomate control server running on http://127.0.0.1:${this.port}`,
         );
         resolve(this.port);
       });
@@ -662,12 +901,14 @@ export class LLMBrowserServer {
           this.port += 1;
           this.server?.close();
           this.server = null;
-          this.start(attemptsLeft - 1).then(resolve).catch(reject);
+          this.start(attemptsLeft - 1)
+            .then(resolve)
+            .catch(reject);
         } else if (err.code === "EADDRINUSE") {
           reject(
             new Error(
-              `Jobomate control server could not bind a free port near ${this.port} after 10 attempts`
-            )
+              `Jobomate control server could not bind a free port near ${this.port} after 10 attempts`,
+            ),
           );
         } else {
           reject(err);
@@ -714,7 +955,9 @@ export class LLMBrowserServer {
   }
 
   getUptime(): number {
-    return this.startedAt ? Math.floor((Date.now() - this.startedAt) / 1000) : 0;
+    return this.startedAt
+      ? Math.floor((Date.now() - this.startedAt) / 1000)
+      : 0;
   }
 }
 
@@ -734,7 +977,7 @@ export function getLlmServer(controller?: BrowserController): LLMBrowserServer {
 
 export async function startLlmServer(
   controller: BrowserController,
-  port?: number
+  port?: number,
 ): Promise<number> {
   const server = getLlmServer(controller);
   if (port && !server.isRunning()) {

@@ -48,3 +48,10 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+      # Advisory-only: surfaces new high/critical advisories in the run log without failing
+      # the gate. Most advisories here are transitive dev-only deps (electron-builder, concurrently)
+      # that don't ship to end users; we don't want an unfixable upstream issue to block all PRs.
+      # Triage happens offline. Flip to a hard failure once the audit is clean.
+      - name: Security audit (advisory)
+        run: npm audit --audit-level=high
+        continue-on-error: true

@@ -12,10 +12,12 @@ public static class SecretRedactor
 {
     private static readonly (Regex Pattern, string Placeholder)[] Rules =
     {
+        // Anthropic-style API keys. Must run before the generic sk- rule
+        // below, otherwise the broader pattern redacts sk-ant- keys first
+        // and this more specific rule never matches.
+        (new Regex(@"sk-ant-[A-Za-z0-9\-_]{16,}", RegexOptions.Compiled), "<api-key>"),
         // OpenAI-style API keys and project keys.
         (new Regex(@"sk-[A-Za-z0-9\-_]{16,}", RegexOptions.Compiled), "<api-key>"),
-        // Anthropic-style API keys.
-        (new Regex(@"sk-ant-[A-Za-z0-9\-_]{16,}", RegexOptions.Compiled), "<api-key>"),
         // GitHub PATs (classic + fine-grained).
         (new Regex(@"gh[ouprs]_[A-Za-z0-9]{16,}", RegexOptions.Compiled), "<github-token>"),
         // Bearer headers, case-insensitive.

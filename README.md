@@ -47,8 +47,8 @@ dotnet build Jobomate.sln
 dotnet run --project Jobomate.App -- --engine --port 9223
 
 # Run tests / checks
-dotnet test Jobomate.sln   # 101 C# unit tests
-npm run lint && npx tsc --noEmit && npm test   # eslint + typecheck + 41 vitest tests
+dotnet test Jobomate.sln   # 131 C# unit tests
+npm run lint && npx tsc --noEmit && npm test   # eslint + typecheck + 82 vitest tests
 ```
 
 ## Configuration
@@ -160,7 +160,7 @@ Jobomate/
 │   ├── Approval/           # Approval rules
 │   ├── Persistence/        # Thread/Job/Draft storage
 │   └── Security/           # CredentialStore (OS keychain)
-├── Jobomate.Tests/         # ~57 xUnit tests
+├── Jobomate.Tests/         # 131 xUnit tests
 ├── electron/               # Electron main process (LM_Browser fork)
 │   ├── main.ts             # Electron main + engine spawn
 │   ├── preload.ts          # IPC bridge

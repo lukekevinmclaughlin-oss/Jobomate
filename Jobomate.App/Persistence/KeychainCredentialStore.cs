@@ -106,7 +106,15 @@ public sealed class KeychainCredentialStore : ICredentialStore
             if (bytes is null || bytes.Length == 0) return new();
             return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(Encoding.UTF8.GetString(bytes)) ?? new();
         }
-        catch { return new(); }
+        catch (Exception ex)
+        {
+            // A transient keychain failure (lock contention, ACL prompt timeout, OSStatus) was
+            // previously indistinguishable from an empty store, which made missing-provider-key
+            // symptoms confusing. Surface it to stderr so the failure mode is observable. The
+            // exception never contains the secret blob itself — only OSStatus codes / messages.
+            Console.Error.WriteLine($"[keychain] load failed, treating store as empty: {ex.GetType().Name}: {ex.Message}");
+            return new();
+        }
     }
 
     private void Save(Dictionary<string, JsonElement> store)

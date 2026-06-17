@@ -96,9 +96,12 @@ public sealed class JobomateAuditLog : IAuditLog
             var file = Path.Combine(_jsonlDir, $"audit-{entry.At:yyyyMMdd}.jsonl");
             File.AppendAllText(file, JsonSerializer.Serialize(entry, JsonOpts) + Environment.NewLine);
         }
-        catch
+        catch (Exception ex)
         {
-            // Disk problems must not break the workflow; the in-memory tail still has it.
+            // Disk problems must not break the workflow; the in-memory tail still has the event.
+            // Surface the failure to stderr so a silent audit gap is at least observable (the
+            // entry itself is already redacted above, so logging its target is safe).
+            Console.Error.WriteLine($"[audit] failed to append jsonl ({ex.GetType().Name}): {ex.Message}");
         }
     }
 }

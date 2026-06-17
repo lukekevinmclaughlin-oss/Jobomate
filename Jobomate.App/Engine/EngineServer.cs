@@ -207,12 +207,34 @@ public static class EngineServer
     private static async Task<JsonElement> ReadBodyAsync(HttpListenerRequest req)
     {
         if (!req.HasEntityBody) return default;
-        // Reject oversized bodies up front so a hostile local caller cannot spike
-        // memory by streaming an unbounded request into ReadToEndAsync.
+        // Reject oversized bodies. The ContentLength64 check covers the honest case; the
+        // byte-capped loop inside ReadBody ALSO catches streamed/chunked bodies that omit
+        // Content-Length, so neither path can push us past the cap.
         if (req.ContentLength64 > MaxBodyBytes)
             throw new InvalidDataException($"Request body exceeds {MaxBodyBytes} bytes");
-        using var reader = new StreamReader(req.InputStream, req.ContentEncoding ?? Encoding.UTF8);
-        var text = await reader.ReadToEndAsync().ConfigureAwait(false);
+        return await ReadBody(req.InputStream, req.ContentEncoding ?? Encoding.UTF8, MaxBodyBytes).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads at most <paramref name="maxBytes"/> from <paramref name="stream"/> and parses it as JSON.
+    /// Exposed as internal so tests can drive the cap directly with a fake stream (HttpListenerRequest
+    /// is not fakeable). Returns default(JsonElement) for empty/whitespace/unparseable bodies —
+    /// matching the historical behavior of the route layer, which treats those as "no body".
+    /// </summary>
+    internal static async Task<JsonElement> ReadBody(Stream stream, Encoding encoding, long maxBytes)
+    {
+        var buffer = new byte[16 * 1024];
+        using var ms = new MemoryStream();
+        int n;
+        while ((n = await stream.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
+        {
+            ms.Write(buffer, 0, n);
+            if (ms.Length > maxBytes)
+                throw new InvalidDataException($"Request body exceeds {maxBytes} bytes");
+        }
+
+        if (ms.Length == 0) return default;
+        var text = encoding.GetString(ms.GetBuffer(), 0, (int)ms.Length);
         if (string.IsNullOrWhiteSpace(text)) return default;
         try { return JsonDocument.Parse(text).RootElement.Clone(); } catch { return default; }
     }
