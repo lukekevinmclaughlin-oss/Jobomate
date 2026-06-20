@@ -1,11 +1,36 @@
 import React from "react";
-import { Plus, BookOpen, History, Download, Settings, Sparkles } from "lucide-react";
+import {
+  BarChart3,
+  BookOpen,
+  Download,
+  Globe2,
+  History,
+  Home,
+  ListChecks,
+  Paperclip,
+  Plus,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 
-export type AcademySidebarView = "bookmarks" | "history" | "downloads" | null;
+export type AcademySidebarView =
+  | "workspace"
+  | "browser"
+  | "pipeline"
+  | "tracker"
+  | "bookmarks"
+  | "history"
+  | "downloads"
+  | null;
 
 interface AcademySidebarProps {
   brandName?: string;
   brandInitials?: string;
+  onWorkspace?: () => void;
+  onBrowser?: () => void;
+  onPipeline?: () => void;
+  onTracker?: () => void;
+  onAttach?: () => void;
   onNewTab: () => void;
   onBookmarks: () => void;
   onHistory: () => void;
@@ -24,6 +49,11 @@ interface AcademySidebarProps {
 export const AcademySidebar: React.FC<AcademySidebarProps> = ({
   brandName = "LLM Browser",
   brandInitials = "LB",
+  onWorkspace,
+  onBrowser,
+  onPipeline,
+  onTracker,
+  onAttach,
   onNewTab,
   onBookmarks,
   onHistory,
@@ -58,15 +88,36 @@ export const AcademySidebar: React.FC<AcademySidebarProps> = ({
         <span className="academy-sidebar__badge">Beta</span>
       </div>
 
-      {item("New Tab", Plus, onNewTab)}
+      <div className="academy-sidebar__section">Workspace</div>
+      {item("Workspace", Home, onWorkspace ?? onNewTab, activeView === "workspace")}
+      {item("Browser", Globe2, onBrowser ?? onNewTab, activeView === "browser")}
+      {item("Pipeline", ListChecks, onPipeline ?? onNewTab, activeView === "pipeline")}
+      {item("Tracker", BarChart3, onTracker ?? onNewTab, activeView === "tracker")}
       {onAssistant ? item("Assistant", Sparkles, onAssistant) : null}
 
-      <div className="academy-sidebar__section">Browser</div>
+      <div className="academy-sidebar__section">Browser tools</div>
+      {item("New tab", Plus, onNewTab)}
       {item("Bookmarks", BookOpen, onBookmarks, activeView === "bookmarks")}
       {item("History", History, onHistory, activeView === "history")}
       {item("Downloads", Download, onDownloads, activeView === "downloads")}
 
       <div className="academy-sidebar__spacer" />
+
+      <button
+        type="button"
+        className="academy-sidebar__attachment"
+        onClick={onAttach}
+        disabled={!onAttach}
+        title="Attach a CV or role brief"
+      >
+        <span className="academy-sidebar__attachment-icon">
+          <Paperclip size={15} />
+        </span>
+        <span>
+          <span className="academy-sidebar__attachment-title">Attachments</span>
+          <span className="academy-sidebar__attachment-sub">CV / role brief</span>
+        </span>
+      </button>
 
       {item("Settings", Settings, onSettings)}
       <button

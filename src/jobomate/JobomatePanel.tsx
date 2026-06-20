@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Send,
   Bot,
@@ -24,6 +24,8 @@ import {
   DollarSign,
   FileDown,
   Users,
+  RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 import {
   engine,
@@ -47,10 +49,23 @@ type EditState =
   | null;
 
 const DRAFT_STATUSES = ["Draft", "Approved", "Rejected", "Paused"];
+type WorkflowStage = "discover" | "evaluate" | "draft" | "approve" | "send" | "track";
+type SelectedWorkItem =
+  | { kind: "job"; id: string }
+  | { kind: "company"; id: string }
+  | { kind: "draft"; id: string }
+  | { kind: "tracker"; id: string };
+
+export interface JobomatePanelCommand {
+  target: "workspace" | "pipeline" | "tracker" | "attach";
+  id: number;
+}
 
 const uid = () => Math.random().toString(36).slice(2);
 
-export const JobomatePanel: React.FC = () => {
+export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> = ({
+  command,
+}) => {
   const [status, setStatus] = useState<EngineStatus | null>(null);
   const [engineUp, setEngineUp] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -59,6 +74,9 @@ export const JobomatePanel: React.FC = () => {
   const [tab, setTab] = useState<"jobs" | "companies" | "drafts" | "tracker">(
     "jobs",
   );
+  const [workflowStage, setWorkflowStage] = useState<WorkflowStage>("discover");
+  const [selectedWorkItem, setSelectedWorkItem] =
+    useState<SelectedWorkItem | null>(null);
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [companies, setCompanies] = useState<CompanyRow[]>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
@@ -79,11 +97,12 @@ export const JobomatePanel: React.FC = () => {
   const [autoSend, setAutoSend] = useState(false);
   const chatsRef = useRef<HTMLDivElement>(null);
   const loadedRef = useRef(false);
+  const handledCommandRef = useRef<number | null>(null);
 
   // User-resizable chat ↔ results split (drag the divider between the chat and the Jobs/Drafts list).
   const [resultsH, setResultsH] = useState(() => {
     const s = Number(localStorage.getItem("jbm_results_h"));
-    return s >= 90 && s <= 1000 ? s : 230;
+    return s >= 90 && s <= 1000 ? s : 190;
   });
   const resultsHRef = useRef(resultsH);
   resultsHRef.current = resultsH;
@@ -91,7 +110,7 @@ export const JobomatePanel: React.FC = () => {
   // User-resizable message box (drag the divider above the composer to grow/shrink it).
   const [composerH, setComposerH] = useState(() => {
     const s = Number(localStorage.getItem("jbm_composer_h"));
-    return s >= 40 && s <= 400 ? s : 52;
+    return s >= 40 && s <= 400 ? s : 42;
   });
   const composerHRef = useRef(composerH);
   composerHRef.current = composerH;
@@ -382,6 +401,28 @@ export const JobomatePanel: React.FC = () => {
     await refreshStatus();
     setBusy(null);
   }, [refreshStatus]);
+
+  useEffect(() => {
+    if (!command) return;
+    if (handledCommandRef.current === command.id) return;
+    handledCommandRef.current = command.id;
+    switch (command.target) {
+      case "workspace":
+        setShowChats(true);
+        break;
+      case "pipeline":
+        setWorkflowStage("discover");
+        setTab(drafts.length > 0 ? "drafts" : "jobs");
+        break;
+      case "tracker":
+        setWorkflowStage("track");
+        setTab("tracker");
+        break;
+      case "attach":
+        attachCv();
+        break;
+    }
+  }, [attachCv, command, drafts.length]);
 
   const scheduleSend = useCallback(async () => {
     if (busy) return;
@@ -746,6 +787,163 @@ export const JobomatePanel: React.FC = () => {
         rowsListLabel: "postings",
       };
 
+  const pendingDrafts = useMemo(
+    () => drafts.filter((d) => d.status.toLowerCase() === "draft"),
+    [drafts],
+  );
+  const approvedDrafts = useMemo(
+    () => drafts.filter((d) => d.status.toLowerCase() === "approved"),
+    [drafts],
+  );
+  const scoredRows = useMemo(
+    () => jobs.filter((j) => (j.fitScore ?? 0) > 0),
+    [jobs],
+  );
+
+  const pipelineStages = useMemo(
+    () => [
+      {
+        id: "discover" as const,
+        label: "Discover",
+        count: jobs.length + companies.length,
+        icon: recruiter ? <Users size={16} /> : <Briefcase size={16} />,
+      },
+      {
+        id: "evaluate" as const,
+        label: "Evaluate",
+        count: scoredRows.length,
+        icon: <TrendingUp size={16} />,
+      },
+      {
+        id: "draft" as const,
+        label: "Draft",
+        count: drafts.length,
+        icon: <FileText size={16} />,
+      },
+      {
+        id: "approve" as const,
+        label: "Approve",
+        count: pendingDrafts.length,
+        icon: <CheckCircle2 size={16} />,
+      },
+      {
+        id: "send" as const,
+        label: "Send",
+        count: status?.queued ?? approvedDrafts.length,
+        icon: <Mail size={16} />,
+      },
+      {
+        id: "track" as const,
+        label: "Track",
+        count: tracker.length,
+        icon: <CalendarClock size={16} />,
+      },
+    ],
+    [
+      approvedDrafts.length,
+      companies.length,
+      drafts.length,
+      jobs.length,
+      pendingDrafts.length,
+      recruiter,
+      scoredRows.length,
+      status?.queued,
+      tracker.length,
+    ],
+  );
+
+  const selectWorkflowStage = (stage: WorkflowStage) => {
+    setWorkflowStage(stage);
+    if (stage === "draft" || stage === "approve" || stage === "send") {
+      setTab("drafts");
+    } else if (stage === "track") {
+      setTab("tracker");
+    } else {
+      setTab("jobs");
+    }
+  };
+
+  const scoreAll = useCallback(async () => {
+    if (busy) return;
+    setWorkflowStage("evaluate");
+    setBusy(recruiter ? "Scoring candidate fit…" : "Scoring all jobs…");
+    try {
+      const r = await engine.scoreAllJobs();
+      say(
+        "system",
+        recruiter
+          ? `Scored ${r.scored} of ${r.of} candidates.`
+          : `Scored ${r.scored} of ${r.of} jobs.`,
+      );
+    } catch (e: any) {
+      say("system", "Scoring failed: " + e.message);
+    }
+    await refreshData();
+    setBusy(null);
+  }, [busy, recruiter, refreshData]);
+
+  const runPrimaryStageAction = useCallback(async () => {
+    switch (workflowStage) {
+      case "discover":
+        await quick("research");
+        break;
+      case "evaluate":
+        await scoreAll();
+        break;
+      case "draft":
+        await quick("draft");
+        break;
+      case "approve":
+        await quick("approve");
+        break;
+      case "send":
+        if ((status?.queued ?? 0) > 0) await quick("send");
+        else await scheduleSend();
+        break;
+      case "track":
+        setTab("tracker");
+        say("system", "Tracker opened.");
+        break;
+    }
+  }, [quick, scheduleSend, scoreAll, status?.queued, workflowStage]);
+
+  const primaryAction = {
+    discover: recruiter ? "Find candidates" : "Find jobs",
+    evaluate: recruiter ? "Score candidates" : "Score jobs",
+    draft: recruiter ? "Draft outreach" : "Draft applications",
+    approve: "Approve drafts",
+    send: (status?.queued ?? 0) > 0 ? "Send due items" : "Schedule approved",
+    track: "Open tracker",
+  }[workflowStage];
+
+  const selected =
+    selectedWorkItem?.kind === "job"
+      ? jobs.find((j) => j.id === selectedWorkItem.id)
+      : selectedWorkItem?.kind === "company"
+        ? companies.find((c) => c.id === selectedWorkItem.id)
+        : selectedWorkItem?.kind === "draft"
+          ? drafts.find((d) => d.id === selectedWorkItem.id)
+          : selectedWorkItem?.kind === "tracker"
+            ? tracker.find((r) => r.id === selectedWorkItem.id)
+            : drafts[0] ?? jobs[0] ?? companies[0] ?? tracker[0] ?? null;
+
+  const selectedKind =
+    selectedWorkItem?.kind ??
+    (drafts[0]
+      ? "draft"
+      : jobs[0]
+        ? "job"
+        : companies[0]
+          ? "company"
+          : tracker[0]
+            ? "tracker"
+            : null);
+
+  const selectedKey =
+    selected && selectedKind
+      ? `${selectedKind}:${"id" in selected ? selected.id : ""}`
+      : "";
+
   return (
     <section className="jbm" ref={sectionRef}>
       <header className="jbm__head">
@@ -970,48 +1168,64 @@ export const JobomatePanel: React.FC = () => {
         </div>
       )}
 
-      <div className="jbm__actions">
-        <button onClick={() => quick("research")} disabled={!!busy}>
-          {recruiter ? <Users size={14} /> : <Briefcase size={14} />} {L.research}
-        </button>
-        <button onClick={() => quick("companies")} disabled={!!busy}>
-          <Building2 size={14} /> {L.companies}
-        </button>
-        <button onClick={() => quick("draft")} disabled={!!busy}>
-          <FileText size={14} /> {L.draft}
-        </button>
-        <button onClick={() => quick("approve")} disabled={!!busy}>
-          <CheckCircle2 size={14} /> Approve
-        </button>
+      <div className="jbm__pipeline" aria-label="Pipeline stages">
+        {pipelineStages.map((stage, index) => (
+          <button
+            key={stage.id}
+            type="button"
+            className={`jbm__stage ${workflowStage === stage.id ? "is-active" : ""}`}
+            onClick={() => selectWorkflowStage(stage.id)}
+            disabled={!!busy && workflowStage !== stage.id}
+            title={`${stage.label}: ${stage.count}`}
+          >
+            <span className="jbm__stageIcon">{stage.icon}</span>
+            <span className="jbm__stageLabel">{stage.label}</span>
+            <span className="jbm__stageCount">{stage.count}</span>
+            {index < pipelineStages.length - 1 && (
+              <span className="jbm__stageLine" aria-hidden="true" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="jbm__commandBar">
         <button
-          onClick={scheduleSend}
-          disabled={!!busy}
-          title={L.scheduleTitle}
+          className="jbm__primaryAction"
+          onClick={runPrimaryStageAction}
+          disabled={!!busy || !engineUp}
         >
-          <CalendarClock size={14} /> Schedule
-          {status && status.queued > 0 ? ` (${status.queued})` : ""}
+          {workflowStage === "send" ? <Play size={15} /> : pipelineStages.find((s) => s.id === workflowStage)?.icon}
+          {primaryAction}
         </button>
-        <button onClick={() => quick("prepare")} disabled={!!busy}>
-          <Mail size={14} /> Prepare emails
-        </button>
-        <button onClick={() => quick("send")} disabled={!!busy}>
-          <Play size={14} /> Send
-        </button>
-        <button
-          onClick={async () => {
-            setBusy("Scoring all jobs…");
-            try {
-              const r = await engine.scoreAllJobs();
-              say("system", `Scored ${r.scored} of ${r.of} jobs.`);
-            } catch (e: any) {
-              say("system", "Scoring failed: " + e.message);
-            }
-            setBusy(null);
-          }}
-          disabled={!!busy}
-        >
-          <TrendingUp size={14} /> Score
-        </button>
+        <div className="jbm__secondaryActions">
+          <button
+            onClick={() => quick("companies")}
+            disabled={!!busy}
+            title="Research companies"
+          >
+            <Building2 size={15} />
+            <span>Companies</span>
+          </button>
+          <button onClick={scoreAll} disabled={!!busy} title="Score fit">
+            <TrendingUp size={15} />
+            <span>Score</span>
+          </button>
+          <button
+            onClick={() => quick("prepare")}
+            disabled={!!busy}
+            title="Open Gmail and prepare drafts"
+          >
+            <Mail size={15} />
+            <span>Prepare</span>
+          </button>
+          <button onClick={() => quick("send")} disabled={!!busy} title="Send due items">
+            <Play size={15} />
+            <span>Send</span>
+          </button>
+          <button onClick={refreshData} disabled={!!busy} title="Refresh data">
+            <RefreshCw size={15} />
+          </button>
+        </div>
         <label
           className="jbm__autosend"
           title="Automatically send due items every 2 minutes (rate-limited; dry-run unless a real email account is connected)"
@@ -1020,9 +1234,17 @@ export const JobomatePanel: React.FC = () => {
             type="checkbox"
             checked={autoSend}
             onChange={(e) => setAutoSend(e.target.checked)}
-          />{" "}
+          />
           Auto-send
         </label>
+      </div>
+
+      <div className="jbm__activityHead">
+        <span>Agent activity</span>
+        <span>
+          {status?.browserRunning ? "Browser linked" : "Browser idle"} ·{" "}
+          {status?.dryRun ? "Dry-run protected" : "Live send ready"}
+        </span>
       </div>
 
       <div ref={listRef} className="jbm__messages">
@@ -1064,6 +1286,20 @@ export const JobomatePanel: React.FC = () => {
         className="jbm__results"
         style={{ height: resultsH, maxHeight: "none", flexShrink: 0 }}
       >
+        <div className="jbm__workbenchHead">
+          <div>
+            <span className="jbm__eyebrow">Workbench</span>
+            <strong>{recruiter ? "Sourcing pipeline" : "Application pipeline"}</strong>
+          </div>
+          <button
+            className="jbm__iconTool"
+            type="button"
+            onClick={refreshData}
+            title="Refresh workbench"
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
         <div className="jbm__tabs">
           <button
             className={tab === "jobs" ? "on" : ""}
@@ -1187,17 +1423,56 @@ export const JobomatePanel: React.FC = () => {
           </div>
         )}
 
+        {tab === "jobs" && jobs.length > 0 && (
+          <div className="jbm__tableHead">
+            <span />
+            <span>{recruiter ? "Candidate" : "Job"}</span>
+            <span>Signals</span>
+          </div>
+        )}
+        {tab === "companies" && companies.length > 0 && (
+          <div className="jbm__tableHead">
+            <span />
+            <span>Company</span>
+            <span>Contact</span>
+          </div>
+        )}
+        {tab === "drafts" && drafts.length > 0 && (
+          <div className="jbm__tableHead">
+            <span />
+            <span>Draft</span>
+            <span>Status</span>
+          </div>
+        )}
+        {tab === "tracker" && tracker.length > 0 && (
+          <div className="jbm__tableHead">
+            <span />
+            <span>Record</span>
+            <span>Status</span>
+          </div>
+        )}
+
         <div className="jbm__resultList">
           {tab === "jobs" &&
             jobs.slice(0, 300).map((j) => (
               <div
                 key={j.id}
-                className={`jbm__job ${j.included === false ? "jbm__job--off" : ""} ${selJobs.has(j.id) ? "is-sel" : ""}`}
+                className={`jbm__job ${j.included === false ? "jbm__job--off" : ""} ${selJobs.has(j.id) ? "is-sel" : ""} ${selectedKey === `job:${j.id}` ? "is-active" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedWorkItem({ kind: "job", id: j.id })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedWorkItem({ kind: "job", id: j.id });
+                  }
+                }}
               >
                 <input
                   type="checkbox"
                   className="jbm__rowCheck"
                   checked={selJobs.has(j.id)}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={() => toggleSel(selJobs, setSelJobs, j.id)}
                 />
                 <div className="jbm__jobMain">
@@ -1213,7 +1488,7 @@ export const JobomatePanel: React.FC = () => {
                     {[j.company, j.location].filter(Boolean).join(" · ")}
                   </div>
                 </div>
-                <div className="jbm__rowActions">
+                <div className="jbm__rowActions" onClick={(e) => e.stopPropagation()}>
                   <button
                     title="Score fit"
                     onClick={async () => {
@@ -1268,12 +1543,24 @@ export const JobomatePanel: React.FC = () => {
             companies.slice(0, 300).map((c) => (
               <div
                 key={c.id}
-                className={`jbm__job ${selCompanies.has(c.id) ? "is-sel" : ""}`}
+                className={`jbm__job ${selCompanies.has(c.id) ? "is-sel" : ""} ${selectedKey === `company:${c.id}` ? "is-active" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() =>
+                  setSelectedWorkItem({ kind: "company", id: c.id })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedWorkItem({ kind: "company", id: c.id });
+                  }
+                }}
               >
                 <input
                   type="checkbox"
                   className="jbm__rowCheck"
                   checked={selCompanies.has(c.id)}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={() =>
                     toggleSel(selCompanies, setSelCompanies, c.id)
                   }
@@ -1286,7 +1573,7 @@ export const JobomatePanel: React.FC = () => {
                       .join(" · ") || "no email — needs manual contact"}
                   </div>
                 </div>
-                <div className="jbm__rowActions">
+                <div className="jbm__rowActions" onClick={(e) => e.stopPropagation()}>
                   <button
                     title="Delete company"
                     onClick={async () => {
@@ -1315,12 +1602,22 @@ export const JobomatePanel: React.FC = () => {
             drafts.map((d) => (
               <div
                 key={d.id}
-                className={`jbm__job ${selDrafts.has(d.id) ? "is-sel" : ""}`}
+                className={`jbm__job ${selDrafts.has(d.id) ? "is-sel" : ""} ${selectedKey === `draft:${d.id}` ? "is-active" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedWorkItem({ kind: "draft", id: d.id })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedWorkItem({ kind: "draft", id: d.id });
+                  }
+                }}
               >
                 <input
                   type="checkbox"
                   className="jbm__rowCheck"
                   checked={selDrafts.has(d.id)}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={() => toggleSel(selDrafts, setSelDrafts, d.id)}
                 />
                 <div className="jbm__jobMain">
@@ -1337,7 +1634,7 @@ export const JobomatePanel: React.FC = () => {
                     {d.to ? ` · ${d.to}` : ""}
                   </div>
                 </div>
-                <div className="jbm__rowActions">
+                <div className="jbm__rowActions" onClick={(e) => e.stopPropagation()}>
                   <button
                     title="Generate cover letter PDF"
                     onClick={async () => {
@@ -1374,7 +1671,21 @@ export const JobomatePanel: React.FC = () => {
           )}
           {tab === "tracker" &&
             tracker.map((r) => (
-              <div key={r.id} className="jbm__job">
+              <div
+                key={r.id}
+                className={`jbm__job ${selectedKey === `tracker:${r.id}` ? "is-active" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() =>
+                  setSelectedWorkItem({ kind: "tracker", id: r.id })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedWorkItem({ kind: "tracker", id: r.id });
+                  }
+                }}
+              >
                 <div className="jbm__jobMain">
                   <div className="jbm__jobTitle">
                     {r.roleTitle}{" "}
@@ -1391,7 +1702,7 @@ export const JobomatePanel: React.FC = () => {
                       : ""}
                   </div>
                 </div>
-                <div className="jbm__rowActions">
+                <div className="jbm__rowActions" onClick={(e) => e.stopPropagation()}>
                   <select
                     value={r.status}
                     onChange={async (e) => {
@@ -1438,6 +1749,250 @@ export const JobomatePanel: React.FC = () => {
           )}
         </div>
       </div>
+
+      {selected && selectedKind && (
+        <div className="jbm__detailDrawer">
+          <div className="jbm__detailHead">
+            <div className="jbm__detailTitle">
+              <span className="jbm__eyebrow">
+                {selectedKind === "job"
+                  ? recruiter
+                    ? "Candidate review"
+                    : "Job review"
+                  : selectedKind === "company"
+                    ? "Company review"
+                    : selectedKind === "draft"
+                      ? "Draft review"
+                      : "Tracker record"}
+              </span>
+              <strong>
+                {selectedKind === "job"
+                  ? (selected as JobRow).title
+                  : selectedKind === "company"
+                    ? (selected as CompanyRow).name
+                    : selectedKind === "draft"
+                      ? (selected as DraftRow).role
+                      : (selected as TrackerRow).roleTitle}
+              </strong>
+              <span>
+                {selectedKind === "job"
+                  ? [(selected as JobRow).company, (selected as JobRow).location]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : selectedKind === "company"
+                    ? [(selected as CompanyRow).website, (selected as CompanyRow).location]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : selectedKind === "draft"
+                      ? [
+                          (selected as DraftRow).company,
+                          (selected as DraftRow).to,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")
+                      : [
+                          (selected as TrackerRow).company,
+                          (selected as TrackerRow).appliedAt
+                            ? `Applied ${new Date(
+                                (selected as TrackerRow).appliedAt ?? "",
+                              ).toLocaleDateString()}`
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+              </span>
+            </div>
+            <button
+              className="jbm__modalClose"
+              onClick={() => setSelectedWorkItem(null)}
+              aria-label="Close selected item"
+            >
+              <X size={15} />
+            </button>
+          </div>
+
+          <div className="jbm__detailTabs">
+            <span className="on">Draft</span>
+            <span>{selectedKind === "company" ? "Company" : "Job details"}</span>
+            <span>Company</span>
+            <span>Notes</span>
+            <span>Activity</span>
+          </div>
+
+          <div className="jbm__detailBody">
+            <div className="jbm__detailDocs">
+              <div className="jbm__docLine">
+                <FileText size={15} />
+                <span>
+                  {selectedKind === "draft"
+                    ? "Email draft"
+                    : selectedKind === "company"
+                      ? "Speculative target"
+                      : recruiter
+                        ? "Candidate profile"
+                        : "Application target"}
+                </span>
+                <span className="jbm__dot jbm__dot--on" />
+              </div>
+              <div className="jbm__docLine">
+                <Paperclip size={15} />
+                <span>{recruiter ? "Role brief" : "Resume / CV"}</span>
+                <span
+                  className={`jbm__dot ${
+                    status?.hasCv ? "jbm__dot--on" : "jbm__dot--warn"
+                  }`}
+                />
+              </div>
+              {selectedKind === "draft" && (
+                <button
+                  className="jbm__previewBtn"
+                  onClick={() =>
+                    setEditing({
+                      kind: "draft",
+                      data: { ...(selected as DraftRow) },
+                    })
+                  }
+                >
+                  Preview full application <ExternalLink size={13} />
+                </button>
+              )}
+              {selectedKind === "job" && (selected as JobRow).url && (
+                <button
+                  className="jbm__previewBtn"
+                  onClick={() => engine.openBrowser((selected as JobRow).url)}
+                >
+                  Open source page <ExternalLink size={13} />
+                </button>
+              )}
+            </div>
+
+            <div className="jbm__detailSignals">
+              <strong>
+                {selectedKind === "draft" ? "Approval checks" : "Why it matches"}
+              </strong>
+              {selectedKind === "job" && (selected as JobRow).fitScore ? (
+                <span className="jbm__signalGood">
+                  {Math.round((selected as JobRow).fitScore ?? 0)}% fit ·{" "}
+                  {(selected as JobRow).fitExplanation || "scored by Jobomate"}
+                </span>
+              ) : selectedKind === "draft" ? (
+                <>
+                  <span className="jbm__signalGood">
+                    Status: {(selected as DraftRow).status}
+                  </span>
+                  <span className="jbm__signalGood">
+                    Subject ready: {(selected as DraftRow).subject ? "yes" : "needs edit"}
+                  </span>
+                </>
+              ) : selectedKind === "tracker" ? (
+                <>
+                  <span className="jbm__signalGood">
+                    Current state: {(selected as TrackerRow).status}
+                  </span>
+                  <span>{(selected as TrackerRow).notes || "No notes yet."}</span>
+                </>
+              ) : (
+                <span>Review details, score fit, then draft when ready.</span>
+              )}
+            </div>
+
+            <div className="jbm__detailActions">
+              {selectedKind === "draft" ? (
+                <>
+                  <button
+                    className="jbm__approveBtn"
+                    disabled={!!busy}
+                    onClick={async () => {
+                      const draft = selected as DraftRow;
+                      setBusy("Approving selected draft…");
+                      try {
+                        const r = await engine.approve([draft.id]);
+                        say("system", `Approved ${r.approved ?? 1} draft.`);
+                      } catch (e: any) {
+                        say("system", e.message);
+                      }
+                      await refreshData();
+                      setBusy(null);
+                    }}
+                  >
+                    <CheckCircle2 size={15} /> Approve
+                  </button>
+                  <button
+                    className="jbm__rejectBtn"
+                    disabled={!!busy}
+                    onClick={async () => {
+                      const draft = selected as DraftRow;
+                      setBusy("Rejecting selected draft…");
+                      try {
+                        await engine.updateDraft(draft.id, { status: "Rejected" });
+                        say("system", "Draft rejected.");
+                      } catch (e: any) {
+                        say("system", e.message);
+                      }
+                      await refreshData();
+                      setBusy(null);
+                    }}
+                  >
+                    <X size={15} /> Reject
+                  </button>
+                  <button onClick={scheduleSend} disabled={!!busy}>
+                    <CalendarClock size={15} /> Schedule
+                  </button>
+                </>
+              ) : selectedKind === "job" ? (
+                <>
+                  <button
+                    className="jbm__approveBtn"
+                    disabled={!!busy}
+                    onClick={async () => {
+                      const job = selected as JobRow;
+                      setBusy(recruiter ? "Drafting outreach…" : "Drafting application…");
+                      try {
+                        const r = await engine.draft("job", [job.id]);
+                        say("system", `Drafted ${r.drafted ?? 0} item(s).`);
+                      } catch (e: any) {
+                        say("system", "Draft failed: " + e.message);
+                      }
+                      await refreshData();
+                      setTab("drafts");
+                      setBusy(null);
+                    }}
+                  >
+                    <FileText size={15} /> Draft
+                  </button>
+                  <button onClick={scoreAll} disabled={!!busy}>
+                    <TrendingUp size={15} /> Score
+                  </button>
+                </>
+              ) : selectedKind === "company" ? (
+                <button
+                  className="jbm__approveBtn"
+                  disabled={!!busy}
+                  onClick={async () => {
+                    const company = selected as CompanyRow;
+                    setBusy("Drafting speculative application…");
+                    try {
+                      const r = await engine.draft("company", [company.id]);
+                      say("system", `Drafted ${r.drafted ?? 0} item(s).`);
+                    } catch (e: any) {
+                      say("system", "Draft failed: " + e.message);
+                    }
+                    await refreshData();
+                    setTab("drafts");
+                    setBusy(null);
+                  }}
+                >
+                  <FileText size={15} /> Draft
+                </button>
+              ) : (
+                <button onClick={() => setTab("tracker")}>
+                  <CalendarClock size={15} /> Open tracker
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div
         className="jbm__composerSplit"

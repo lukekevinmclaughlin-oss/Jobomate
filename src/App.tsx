@@ -6,7 +6,7 @@ import { BookmarkBar } from "./components/BookmarkBar";
 import { LLMStatus } from "./components/LLMStatus";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AcademySidebar } from "./components/AcademySidebar";
-import { JobomatePanel } from "./jobomate/JobomatePanel";
+import { JobomatePanel, type JobomatePanelCommand } from "./jobomate/JobomatePanel";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { useTabStore } from "./stores/tabStore";
@@ -27,11 +27,16 @@ const App: React.FC = () => {
   const [sidebarView, setSidebarView] = useState<
     "bookmarks" | "history" | "downloads"
   >("bookmarks");
+  const [workspaceView, setWorkspaceView] = useState<
+    "workspace" | "browser" | "pipeline" | "tracker"
+  >("browser");
+  const [jobomateCommand, setJobomateCommand] =
+    useState<JobomatePanelCommand | null>(null);
 
   // User-resizable Jobomate pane (drag the divider between the browser and the panel).
   const [paneWidth, setPaneWidth] = useState(() => {
     const saved = Number(localStorage.getItem("jbm_pane_w"));
-    return saved >= 300 && saved <= 1000 ? saved : 400;
+    return saved >= 460 && saved <= 760 ? saved : 540;
   });
   const [draggingPane, setDraggingPane] = useState(false);
   const paneWidthRef = useRef(paneWidth);
@@ -43,8 +48,8 @@ const App: React.FC = () => {
     const startX = e.clientX;
     const startW = paneWidthRef.current;
     const onMove = (ev: MouseEvent) => {
-      const max = Math.min(window.innerWidth - 360, 1000);
-      setPaneWidth(Math.min(Math.max(startW + (startX - ev.clientX), 300), max));
+      const max = Math.min(window.innerWidth - 440, 760);
+      setPaneWidth(Math.min(Math.max(startW + (startX - ev.clientX), 440), max));
     };
     const onUp = () => {
       setDraggingPane(false);
@@ -217,17 +222,42 @@ const App: React.FC = () => {
     [showSidebar, sidebarView]
   );
 
+  const sendJobomateCommand = useCallback(
+    (target: JobomatePanelCommand["target"]) => {
+      setShowSidebar(false);
+      setJobomateCommand({ target, id: Date.now() });
+    },
+    [],
+  );
+
   return (
     <div className="academy-shell">
       <AcademySidebar
         brandName="Jobomate"
         brandInitials="J"
+        onWorkspace={() => {
+          setWorkspaceView("workspace");
+          sendJobomateCommand("workspace");
+        }}
+        onBrowser={() => {
+          setWorkspaceView("browser");
+          setShowSidebar(false);
+        }}
+        onPipeline={() => {
+          setWorkspaceView("pipeline");
+          sendJobomateCommand("pipeline");
+        }}
+        onTracker={() => {
+          setWorkspaceView("tracker");
+          sendJobomateCommand("tracker");
+        }}
+        onAttach={() => sendJobomateCommand("attach")}
         onNewTab={createNewTab}
         onBookmarks={() => handleSidebarToggle("bookmarks")}
         onHistory={() => handleSidebarToggle("history")}
         onDownloads={() => handleSidebarToggle("downloads")}
         onSettings={() => setShowSettings(true)}
-        activeView={showSidebar ? sidebarView : null}
+        activeView={showSidebar ? sidebarView : workspaceView}
       />
     <div className="app">
       {/* Tab Bar */}
@@ -296,7 +326,7 @@ const App: React.FC = () => {
 
         {/* Jobomate workspace — the job-automation copilot, always docked on the right */}
         <div className="app__jbm-pane" style={{ width: paneWidth }}>
-          <JobomatePanel />
+          <JobomatePanel command={jobomateCommand} />
         </div>
 
         {/* Sidebar */}
