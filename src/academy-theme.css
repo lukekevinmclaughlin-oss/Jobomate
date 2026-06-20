@@ -1003,3 +1003,93 @@ button.primary:hover,
     flex-direction: column;
   }
 }
+
+@media (max-width: 760px) {
+  .academy-shell {
+    width: 100vw;
+  }
+
+  .academy-sidebar {
+    display: none;
+  }
+
+  .academy-shell > .app {
+    width: 100vw;
+    min-width: 0;
+  }
+
+  .app__toolbar {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .app__toolbar-right {
+    gap: 2px;
+  }
+
+  .app__content {
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .app__main-stack {
+    flex: 0 0 210px;
+    min-height: 0;
+    border-bottom: 1px solid var(--academy-border);
+  }
+
+  .app__resizer-h {
+    display: none;
+  }
+
+  .app__jbm-pane {
+    width: 100% !important;
+    min-width: 0;
+    flex: 1 1 auto;
+    border-left: 0;
+  }
+
+  .app__sidebar {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: min(320px, 88vw);
+    z-index: 20;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .jbm__head,
+  .jbm__chatbar {
+    flex-wrap: wrap;
+  }
+
+  .jbm__brand {
+    min-width: 0;
+  }
+
+  .jbm__status {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .jbm__commandBar {
+    grid-template-columns: 1fr repeat(5, 34px);
+    overflow-x: auto;
+  }
+
+  .jbm__tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .jbm__tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .jbm__detailBody {
+    grid-template-columns: 1fr;
+  }
+
+  .jbm__detailActions {
+    grid-column: auto;
+  }
+}
