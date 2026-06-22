@@ -231,6 +231,11 @@ interface BrowserAPI {
       history?: AssistantChatMessage[];
       attachments?: AssistantAttachmentInput[];
     }) => Promise<AssistantResponse>;
+    stop: () => Promise<{ stopped: boolean }>;
+    pause: () => Promise<{ paused: boolean }>;
+    resume: () => Promise<{ paused: boolean }>;
+    setEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>;
+    controlState: () => Promise<{ enabled: boolean; running: boolean; paused: boolean }>;
   };
   shell: {
     openExternal: (url: string) => Promise<void>;

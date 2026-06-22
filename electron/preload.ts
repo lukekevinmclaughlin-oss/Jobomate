@@ -74,6 +74,11 @@ contextBridge.exposeInMainWorld("browserAPI", {
   },
   assistant: {
     send: (input: unknown) => ipcRenderer.invoke("assistant:send", input),
+    stop: () => ipcRenderer.invoke("assistant:stop"),
+    pause: () => ipcRenderer.invoke("assistant:pause"),
+    resume: () => ipcRenderer.invoke("assistant:resume"),
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke("assistant:setEnabled", enabled),
+    controlState: () => ipcRenderer.invoke("assistant:controlState"),
   },
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),

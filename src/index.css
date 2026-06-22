@@ -1350,6 +1350,40 @@ textarea {
     cursor: default;
 }
 
+.assistant-panel__power {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.assistant-panel__power--on {
+    color: #006b5a;
+    background: rgba(23, 184, 139, 0.08);
+    border-color: rgba(23, 184, 139, 0.32);
+}
+
+.assistant-panel__power--off {
+    color: #b42318;
+    background: rgba(180, 35, 24, 0.07);
+    border-color: rgba(180, 35, 24, 0.28);
+}
+
+.assistant-panel__send--stop {
+    background: #b42318;
+}
+
+.assistant-panel__send--stop:hover {
+    background: #99291e;
+}
+
 .assistant-panel__dropzone {
     position: relative;
 }

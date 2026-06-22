@@ -213,6 +213,15 @@ export interface AssistantResponse {
   };
 }
 
+// Live control handle for an in-flight assistant run (stop / pause / resume).
+interface AssistantRunControl {
+  abort: AbortController;
+  cancelled: boolean;
+  paused: boolean;
+  resolveResume: (() => void) | null;
+  resumePromise: Promise<void> | null;
+}
+
 export interface OAuthStartResult {
   status: "started";
   provider: AppOAuthProviderType;
@@ -529,8 +538,78 @@ const PROVIDER_INFO: Record<AppApiProvider, ProviderInfo> = {
 
 export class LlmConnectionManager {
   private pendingOAuth: Map<string, PendingOAuthFlow> = new Map();
+  // User-facing run controls: a power switch for the connection plus stop/
+  // pause/resume for the in-flight assistant run. Only one run is active at a
+  // time (the UI blocks concurrent sends), so a single control object suffices.
+  private llmEnabled = true;
+  private activeRun: AssistantRunControl | null = null;
 
   constructor(private getController: () => BrowserController) {}
+
+  // Turn the connected LLM off/on. Turning it off also interrupts any run in
+  // flight, so the user can hard-stop the model at any moment.
+  setLlmEnabled(enabled: boolean): { enabled: boolean } {
+    this.llmEnabled = enabled;
+    if (!enabled) this.stopActiveRun();
+    return { enabled };
+  }
+
+  getControlState(): { enabled: boolean; running: boolean; paused: boolean } {
+    return {
+      enabled: this.llmEnabled,
+      running: this.activeRun !== null,
+      paused: this.activeRun?.paused ?? false,
+    };
+  }
+
+  // Hard interrupt: abort the in-flight provider request and tell the loop to
+  // exit. Unblocks a paused loop so it can see the cancel and stop.
+  stopActiveRun(): { stopped: boolean } {
+    const run = this.activeRun;
+    if (!run) return { stopped: false };
+    run.cancelled = true;
+    run.abort.abort();
+    if (run.resolveResume) {
+      run.resolveResume();
+      run.resolveResume = null;
+    }
+    return { stopped: true };
+  }
+
+  // Pause between agent steps: the loop awaits a resume before the next round.
+  pauseActiveRun(): { paused: boolean } {
+    const run = this.activeRun;
+    if (!run || run.cancelled || run.paused) return { paused: run?.paused ?? false };
+    run.paused = true;
+    run.resumePromise = new Promise((resolve) => {
+      run.resolveResume = resolve;
+    });
+    return { paused: true };
+  }
+
+  resumeActiveRun(): { paused: boolean } {
+    const run = this.activeRun;
+    if (!run) return { paused: false };
+    run.paused = false;
+    if (run.resolveResume) {
+      run.resolveResume();
+      run.resolveResume = null;
+    }
+    run.resumePromise = null;
+    return { paused: false };
+  }
+
+  private stoppedResult(
+    toolRuns: AssistantToolRun[],
+    config: LlmConnectionConfig,
+    partial?: string
+  ): AssistantResponse {
+    return {
+      content: (partial || "").trim() || "Stopped.",
+      toolRuns,
+      connection: this.connectionSummary(config),
+    };
+  }
 
   providerDefaults(provider: AppApiProvider): ProviderInfo {
     return PROVIDER_INFO[provider] || PROVIDER_INFO.OpenAI;
@@ -689,7 +768,17 @@ export class LlmConnectionManager {
     const prompt = (input.prompt || "").trim();
     const attachments = Array.isArray(input.attachments) ? input.attachments : [];
     if (!prompt && attachments.length === 0) throw new Error("Prompt is required.");
+    if (!this.llmEnabled) throw new Error("The LLM is turned off. Turn it back on to send.");
 
+    const run: AssistantRunControl = {
+      abort: new AbortController(),
+      cancelled: false,
+      paused: false,
+      resolveResume: null,
+      resumePromise: null,
+    };
+    this.activeRun = run;
+    try {
     const config = await this.loadConfig();
     const userContent = await this.composeUserTurn(prompt, attachments);
     const messages: LlmMessage[] = [
@@ -708,10 +797,22 @@ export class LlmConnectionManager {
     let stalledRounds = 0;
 
     for (let round = 0; round < maxRounds; round += 1) {
-      const response = await this.sendMessagesForConfig(config, messages, tools, {
-        maxTokens: 2048,
-        requireToolUse: config.requireToolUse && round === 0,
-      });
+      // Honor user controls between steps: stop exits now; pause waits here for resume.
+      if (run.cancelled) return this.stoppedResult(toolRuns, config);
+      if (run.paused && run.resumePromise) await run.resumePromise;
+      if (run.cancelled) return this.stoppedResult(toolRuns, config);
+
+      let response: ParsedLlmResponse;
+      try {
+        response = await this.sendMessagesForConfig(config, messages, tools, {
+          maxTokens: 2048,
+          requireToolUse: config.requireToolUse && round === 0,
+          signal: run.abort.signal,
+        });
+      } catch (error) {
+        if (run.cancelled || isAbortError(error)) return this.stoppedResult(toolRuns, config);
+        throw error;
+      }
 
       if (response.toolCalls.length === 0) {
         return {
@@ -770,6 +871,7 @@ export class LlmConnectionManager {
 
     // Hit the tool-round budget: ask for a final answer with no further tools so
     // the user gets a real response from what was gathered, not a dead end.
+    if (run.cancelled) return this.stoppedResult(toolRuns, config);
     try {
       const wrap = await this.sendMessagesForConfig(
         config,
@@ -783,7 +885,7 @@ export class LlmConnectionManager {
           },
         ],
         [],
-        { maxTokens: 1024 }
+        { maxTokens: 1024, signal: run.abort.signal }
       );
       return {
         content:
@@ -792,13 +894,17 @@ export class LlmConnectionManager {
         toolRuns,
         connection: this.connectionSummary(config),
       };
-    } catch {
+    } catch (error) {
+      if (run.cancelled || isAbortError(error)) return this.stoppedResult(toolRuns, config);
       return {
         content:
           "I ran out of browser tool steps for this turn. Ask me to continue and I'll pick up where I left off.",
         toolRuns,
         connection: this.connectionSummary(config),
       };
+    }
+    } finally {
+      this.activeRun = null;
     }
   }
 
@@ -810,6 +916,7 @@ export class LlmConnectionManager {
       connectionTest?: boolean;
       maxTokens?: number;
       requireToolUse?: boolean;
+      signal?: AbortSignal;
     } = {}
   ): Promise<ParsedLlmResponse> {
     switch (config.connectionType) {
@@ -851,7 +958,7 @@ export class LlmConnectionManager {
     config: LlmConnectionConfig,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     const info = this.providerDefaults(config.apiProvider);
     const endpoint = config.customEndpoint.trim() || info.url;
@@ -878,7 +985,7 @@ export class LlmConnectionManager {
     config: LlmConnectionConfig,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     if (!config.oauthAccessToken.trim()) {
       throw new Error("OAuth token is missing. Connect OAuth in Settings first.");
@@ -902,7 +1009,7 @@ export class LlmConnectionManager {
     auth: { header: string; value: string } | null,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (auth?.header && auth.value) headers[auth.header] = auth.value;
@@ -918,7 +1025,7 @@ export class LlmConnectionManager {
       payload.tool_choice = options.connectionTest || options.requireToolUse ? "required" : "auto";
     }
 
-    let { ok, status, body } = await postJson(endpoint, headers, payload);
+    let { ok, status, body } = await postJson(endpoint, headers, payload, options.signal);
 
     // "Thinking"/reasoning models (e.g. DeepSeek thinking, some o-series) reject
     // a forced or even explicit tool_choice. Degrade gracefully while keeping the
@@ -930,11 +1037,11 @@ export class LlmConnectionManager {
       payload.tool_choice !== "auto"
     ) {
       payload.tool_choice = "auto";
-      ({ ok, status, body } = await postJson(endpoint, headers, payload));
+      ({ ok, status, body } = await postJson(endpoint, headers, payload, options.signal));
     }
     if (!ok && isToolChoiceLimitation(status, body) && "tool_choice" in payload) {
       delete payload.tool_choice;
-      ({ ok, status, body } = await postJson(endpoint, headers, payload));
+      ({ ok, status, body } = await postJson(endpoint, headers, payload, options.signal));
     }
 
     // Model can't do tool/function calling or the universal chat template at all:
@@ -946,7 +1053,7 @@ export class LlmConnectionManager {
         tools: undefined,
         tool_choice: undefined,
       };
-      ({ ok, status, body } = await postJson(endpoint, headers, retryPayload));
+      ({ ok, status, body } = await postJson(endpoint, headers, retryPayload, options.signal));
     }
 
     if (!ok) throw new Error(`HTTP ${status}: ${trimForDisplay(body, 600)}`);
@@ -959,7 +1066,7 @@ export class LlmConnectionManager {
     config: LlmConnectionConfig,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     const system = messages
       .filter((message) => message.role === "system")
@@ -993,7 +1100,7 @@ export class LlmConnectionManager {
       "x-api-key": key,
       "anthropic-version": "2023-06-01",
     };
-    let { ok, status, body } = await postJson(endpoint, headers, payload);
+    let { ok, status, body } = await postJson(endpoint, headers, payload, options.signal);
 
     // Extended-thinking models reject a forced tool_choice; fall back to auto, then omit.
     if (
@@ -1003,11 +1110,11 @@ export class LlmConnectionManager {
       (payload.tool_choice as { type?: string }).type !== "auto"
     ) {
       payload.tool_choice = { type: "auto" };
-      ({ ok, status, body } = await postJson(endpoint, headers, payload));
+      ({ ok, status, body } = await postJson(endpoint, headers, payload, options.signal));
     }
     if (!ok && isToolChoiceLimitation(status, body) && "tool_choice" in payload) {
       delete payload.tool_choice;
-      ({ ok, status, body } = await postJson(endpoint, headers, payload));
+      ({ ok, status, body } = await postJson(endpoint, headers, payload, options.signal));
     }
 
     if (!ok) throw new Error(`HTTP ${status}: ${trimForDisplay(body, 600)}`);
@@ -1020,7 +1127,7 @@ export class LlmConnectionManager {
     config: LlmConnectionConfig,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     const url = appendQuery(endpoint.replace("{model}", resolvedModel(config)), "key", key);
     const functionDeclarations = tools.map((tool) => ({
@@ -1039,7 +1146,7 @@ export class LlmConnectionManager {
       payload.tools = [{ functionDeclarations }];
     }
 
-    const response = await postJson(url, { "Content-Type": "application/json" }, payload);
+    const response = await postJson(url, { "Content-Type": "application/json" }, payload, options.signal);
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${trimForDisplay(response.body, 600)}`);
     return parseGoogleResponse(response.body);
   }
@@ -1529,15 +1636,25 @@ function normalizeForUniversalTemplate(messages: LlmMessage[]): LlmMessage[] {
 async function postJson(
   url: string,
   headers: Record<string, string>,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  signal?: AbortSignal
 ): Promise<{ ok: boolean; status: number; body: string }> {
   const response = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(removeUndefined(payload)),
+    signal,
   });
   const body = await response.text();
   return { ok: response.ok, status: response.status, body };
+}
+
+/** True for fetch aborts (user pressed Stop) so the agent loop can end quietly. */
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || /\babort(ed)?\b/i.test(error.message))
+  );
 }
 
 function removeUndefined(value: unknown): unknown {

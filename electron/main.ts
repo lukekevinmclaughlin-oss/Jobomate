@@ -1011,6 +1011,13 @@ function setupIpcHandlers(
   electron.ipcMain.handle("assistant:send", (_event, input) =>
     llmConnection.sendPrompt(input)
   );
+  electron.ipcMain.handle("assistant:stop", () => llmConnection.stopActiveRun());
+  electron.ipcMain.handle("assistant:pause", () => llmConnection.pauseActiveRun());
+  electron.ipcMain.handle("assistant:resume", () => llmConnection.resumeActiveRun());
+  electron.ipcMain.handle("assistant:setEnabled", (_event, enabled: boolean) =>
+    llmConnection.setLlmEnabled(Boolean(enabled))
+  );
+  electron.ipcMain.handle("assistant:controlState", () => llmConnection.getControlState());
 
   electron.ipcMain.handle("downloads:list", () =>
     Array.from(downloads.entries()).map(([id, item]) =>

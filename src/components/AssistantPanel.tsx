@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, FileText, Paperclip, Send, UserRound, Wrench, X } from "lucide-react";
+import { Bot, FileText, Paperclip, Pause, Play, Power, Send, Square, UserRound, Wrench, X } from "lucide-react";
 
 interface ChatMessage {
   id: string;
@@ -30,6 +30,8 @@ export const AssistantPanel: React.FC = () => {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [sending, setSending] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [llmEnabled, setLlmEnabled] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -104,9 +106,44 @@ export const AssistantPanel: React.FC = () => {
     [addFiles]
   );
 
+  // The LLM on/off switch is a runtime state in main; sync it on mount.
+  useEffect(() => {
+    let cancelled = false;
+    window.browserAPI?.assistant
+      ?.controlState?.()
+      .then((state) => {
+        if (!cancelled && state) setLlmEnabled(state.enabled);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const stopRun = useCallback(() => {
+    void window.browserAPI?.assistant?.stop?.();
+    setPaused(false);
+  }, []);
+
+  const togglePause = useCallback(() => {
+    setPaused((prev) => {
+      const next = !prev;
+      if (next) void window.browserAPI?.assistant?.pause?.();
+      else void window.browserAPI?.assistant?.resume?.();
+      return next;
+    });
+  }, []);
+
+  const toggleLlm = useCallback(async () => {
+    const next = !llmEnabled;
+    setLlmEnabled(next);
+    if (!next) setPaused(false);
+    await window.browserAPI?.assistant?.setEnabled?.(next);
+  }, [llmEnabled]);
+
   const sendPrompt = async () => {
     const text = prompt.trim();
-    if ((!text && attachments.length === 0) || sending) return;
+    if ((!text && attachments.length === 0) || sending || !llmEnabled) return;
     const outgoing = attachments;
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -117,6 +154,7 @@ export const AssistantPanel: React.FC = () => {
     setMessages((prev) => [...prev, userMessage]);
     setPrompt("");
     setAttachments([]);
+    setPaused(false);
     setSending(true);
 
     try {
@@ -146,6 +184,7 @@ export const AssistantPanel: React.FC = () => {
       ]);
     } finally {
       setSending(false);
+      setPaused(false);
     }
   };
 
@@ -154,8 +193,18 @@ export const AssistantPanel: React.FC = () => {
       <div className="assistant-panel__header">
         <div className="assistant-panel__title">
           <Bot size={16} />
-          <span>LM_Browser Bridge</span>
+          <span>{llmEnabled ? "LM_Browser Bridge" : "LLM turned off"}</span>
         </div>
+        <button
+          type="button"
+          className={`assistant-panel__power${llmEnabled ? " assistant-panel__power--on" : " assistant-panel__power--off"}`}
+          onClick={toggleLlm}
+          title={llmEnabled ? "LLM is on — click to turn it off" : "LLM is off — click to turn it on"}
+          aria-pressed={llmEnabled}
+          aria-label={llmEnabled ? "Turn LLM off" : "Turn LLM on"}
+        >
+          <Power size={14} />
+        </button>
       </div>
       <div ref={listRef} className="assistant-panel__messages">
         {messages.length === 0 && (
@@ -253,14 +302,37 @@ export const AssistantPanel: React.FC = () => {
             >
               <Paperclip size={15} />
             </button>
-            <button
-              className="assistant-panel__send"
-              onClick={sendPrompt}
-              disabled={sending || (!prompt.trim() && attachments.length === 0)}
-              title="Send"
-            >
-              <Send size={16} />
-            </button>
+            {sending && (
+              <button
+                type="button"
+                className="assistant-panel__attach"
+                onClick={togglePause}
+                title={paused ? "Resume the run" : "Pause between steps"}
+                aria-label={paused ? "Resume" : "Pause"}
+              >
+                {paused ? <Play size={15} /> : <Pause size={15} />}
+              </button>
+            )}
+            {sending ? (
+              <button
+                type="button"
+                className="assistant-panel__send assistant-panel__send--stop"
+                onClick={stopRun}
+                title="Stop the LLM"
+                aria-label="Stop the LLM"
+              >
+                <Square size={14} />
+              </button>
+            ) : (
+              <button
+                className="assistant-panel__send"
+                onClick={sendPrompt}
+                disabled={!llmEnabled || (!prompt.trim() && attachments.length === 0)}
+                title={llmEnabled ? "Send" : "LLM is off"}
+              >
+                <Send size={16} />
+              </button>
+            )}
           </div>
         </div>
         {dragOver && <div className="assistant-panel__drop-hint">Drop files to attach them as context</div>}
