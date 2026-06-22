@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -11,6 +12,7 @@ using Jobomate.Drafting;
 using Jobomate.Filters;
 using Jobomate.Llm;
 using Jobomate.Persistence;
+using Jobomate.Profile;
 using Jobomate.Scheduling;
 using Jobomate.Sources;
 
@@ -145,6 +147,10 @@ public sealed class JobomateEngine
                 if (em is not null) Services.EmailRepo.Delete(em.Id);
                 Services.DraftRepo.Delete(d.Id);
             }
+            // Companies and attachments are also thread-scoped — delete them too so a removed chat leaves
+            // no orphaned rows behind (previously companies/attachments accumulated forever as DB cruft).
+            foreach (var c in Services.CompanyRepo.All().Where(c => c.ThreadId == id).ToList()) Services.CompanyRepo.Delete(c.Id);
+            foreach (var a in Services.AttachmentRepo.All().Where(a => a.ThreadId == id).ToList()) Services.AttachmentRepo.Delete(a.Id);
             Services.ThreadRepo.Delete(id);
         }
         if (ids.Contains(_activeThreadId) || Services.ThreadRepo.Get(_activeThreadId) is null) EnsureActiveThread();
@@ -196,6 +202,7 @@ public sealed class JobomateEngine
             profileHeadline = hasCv ? s.Profile.Headline : "",
             sites = s.Preferences.SearchSites,
             persona = s.Preferences.LlmPersona,
+            attachments = s.AttachmentRepo.All().Count(a => a.ThreadId == _activeThreadId),
             browserRunning = s.Browser.IsRunning,
             browserStatus = s.Browser.Status,
             needsUser = s.Browser.NeedsUserReason,
@@ -331,6 +338,29 @@ public sealed class JobomateEngine
             system += "\n\nThe user scoped your research to these sites:\n" + string.Join("\n", sites);
         system += collected;
 
+        // Files the user dropped into this chat — give their text to the model so it can read and apply
+        // them (answer questions about them, use a brief/spec/spreadsheet when drafting, etc.). Bounded
+        // so a large attachment can't crowd out the rest of the prompt.
+        var myAttachments = Services.AttachmentRepo.All()
+            .Where(a => a.ThreadId == _activeThreadId && a.Chars > 0)
+            .OrderBy(a => a.DateAdded)
+            .ToList();
+        if (myAttachments.Count > 0)
+        {
+            const int totalCap = 120_000;
+            var used = 0;
+            system += "\n\nThe user attached the following file(s) to this chat. Treat them as authoritative " +
+                      "context: read them, and use them when relevant to answer or draft. Do not claim a file " +
+                      "is empty unless its content below truly is.";
+            foreach (var a in myAttachments)
+            {
+                if (used >= totalCap) { system += $"\n\n[Attachment \"{a.Name}\" omitted — context limit reached]"; continue; }
+                var slice = a.Text.Length > totalCap - used ? a.Text.Substring(0, totalCap - used) + "\n…[truncated]" : a.Text;
+                used += slice.Length;
+                system += $"\n\n===== Attached file: {a.Name} =====\n{slice}";
+            }
+        }
+
         var msgs = new List<ChatMessage> { new("system", system) };
         msgs.AddRange(_history.TakeLast(16));
         msgs.Add(new ChatMessage("user", userText));
@@ -355,6 +385,50 @@ public sealed class JobomateEngine
         var profile = await Services.Profiles.BuildFromCvAsync(path, llm, cfg, ct, Mode).ConfigureAwait(false);
         Services.SaveProfile(profile);
         return new { name = profile.FullName, headline = profile.Headline, location = profile.Location, skills = profile.Skills.Count, languages = profile.Languages.Select(l => l.Language + ":" + l.Level) };
+    }
+
+    // ---------------------------------------------------------------- chat attachments ----
+
+    /// <summary>Per-file cap on stored text so one huge file can't blow the model's context window.</summary>
+    private const int AttachmentCharCap = 60_000;
+
+    /// <summary>
+    /// Ingest a file the user dropped into the chat: extract its text and store it against the active
+    /// thread so the connected model can read and apply it. Any file type is accepted; binary files
+    /// (images, archives) yield no text and are reported as unreadable rather than failing.
+    /// </summary>
+    public object AttachFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return new { error = "File not found." };
+
+        var name = Path.GetFileName(path);
+        var text = CvTextExtractor.ExtractAnyText(path);
+        var truncated = text.Length > AttachmentCharCap;
+        if (truncated) text = text.Substring(0, AttachmentCharCap);
+
+        var att = new ChatAttachment
+        {
+            ThreadId = _activeThreadId,
+            Name = name,
+            SourcePath = path,
+            Text = text,
+            Chars = text.Length,
+        };
+        Services.AttachmentRepo.Upsert(att);
+        return new { id = att.Id, name, chars = att.Chars, readable = att.Chars > 0, truncated };
+    }
+
+    public object Attachments() => Services.AttachmentRepo.All()
+        .Where(a => a.ThreadId == _activeThreadId)
+        .OrderBy(a => a.DateAdded)
+        .Select(a => new { id = a.Id, name = a.Name, chars = a.Chars, readable = a.Chars > 0 })
+        .ToList();
+
+    public object DeleteAttachment(string id)
+    {
+        Services.AttachmentRepo.Delete(id);
+        return new { deleted = 1 };
     }
 
     // ---------------------------------------------------------------- research (browser agent) ----
@@ -402,7 +476,7 @@ public sealed class JobomateEngine
     public object Drafts() => Services.DraftRepo.All().Where(d => d.ThreadId == _activeThreadId).Select(d =>
     {
         var email = Services.EmailRepo.All().FirstOrDefault(e => e.ApplicationDraftId == d.Id);
-        return new { id = d.Id, company = d.Company, role = d.RoleTitle, status = d.Status.ToString(), to = email?.ToAddress ?? "", subject = email?.Subject ?? "", body = email?.Body ?? "", coverLetter = d.CoverLetterText ?? "" };
+        return new { id = d.Id, kind = d.Kind == ApplicationKind.Unsolicited ? "speculative" : "job", company = d.Company, role = d.RoleTitle, status = d.Status.ToString(), to = email?.ToAddress ?? "", subject = email?.Subject ?? "", body = email?.Body ?? "", coverLetter = d.CoverLetterText ?? "" };
     }).ToList();
 
     /// <summary>Bulk delete. With ids: those rows. Without ids (all=true): every job in the active chat.</summary>

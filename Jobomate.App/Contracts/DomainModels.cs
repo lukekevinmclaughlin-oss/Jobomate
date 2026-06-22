@@ -320,6 +320,22 @@ public sealed class CompanyTarget : IEntity
     public string ThreadId { get; set; } = "";
 }
 
+/// <summary>
+/// A file the user dropped into the chat composer. Its extracted text is fed to the connected model
+/// as context for that chat thread, so the user can ask about / apply any document (CV, brief, spec,
+/// spreadsheet, code, …). Scoped per thread so attachments don't bleed across conversations.
+/// </summary>
+public sealed class ChatAttachment : IEntity
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("n");
+    public string ThreadId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string SourcePath { get; set; } = "";
+    public string Text { get; set; } = "";
+    public int Chars { get; set; }
+    public DateTimeOffset DateAdded { get; set; } = DateTimeOffset.UtcNow;
+}
+
 public sealed class ApplicationDraft : IEntity
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("n");

@@ -123,6 +123,12 @@ interface AssistantChatMessage {
   content: string;
 }
 
+interface AssistantAttachmentInput {
+  path: string;
+  name?: string;
+  size?: number;
+}
+
 interface AssistantToolRun {
   name: string;
   arguments: Record<string, unknown>;
@@ -223,6 +229,7 @@ interface BrowserAPI {
     send: (input: {
       prompt: string;
       history?: AssistantChatMessage[];
+      attachments?: AssistantAttachmentInput[];
     }) => Promise<AssistantResponse>;
   };
   shell: {
@@ -238,6 +245,9 @@ interface BrowserAPI {
   };
   dialog: {
     openCv: () => Promise<string | null>;
+  };
+  files: {
+    pathFor: (file: File) => string;
   };
   engine: {
     info: () => Promise<{ port: number; token: string }>;

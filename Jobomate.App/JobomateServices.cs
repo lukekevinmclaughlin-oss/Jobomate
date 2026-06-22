@@ -60,6 +60,7 @@ public sealed class JobomateServices
     public Repository<SearchRun> SearchRunRepo { get; }
     public Repository<ChatThread> ThreadRepo { get; }
     public Repository<BlockedCompany> BlockedRepo { get; }
+    public Repository<ChatAttachment> AttachmentRepo { get; }
     private readonly Repository<LlmConnectionConfig> _llmConfigRepo;
     private readonly Repository<EmailAccountConfig> _emailConfigRepo;
     private readonly Repository<UserPreference> _prefRepo;
@@ -95,6 +96,7 @@ public sealed class JobomateServices
         SearchRunRepo = new Repository<SearchRun>(Db);
         ThreadRepo = new Repository<ChatThread>(Db);
         BlockedRepo = new Repository<BlockedCompany>(Db);
+        AttachmentRepo = new Repository<ChatAttachment>(Db);
         _llmConfigRepo = new Repository<LlmConnectionConfig>(Db);
         _emailConfigRepo = new Repository<EmailAccountConfig>(Db);
         _prefRepo = new Repository<UserPreference>(Db);

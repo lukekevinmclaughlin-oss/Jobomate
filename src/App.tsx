@@ -32,6 +32,19 @@ const App: React.FC = () => {
   >("browser");
   const [jobomateCommand, setJobomateCommand] =
     useState<JobomatePanelCommand | null>(null);
+  // Which application type the whole workflow is focused on. Lives here so the big sidebar toggle and
+  // the Jobomate panel share one source of truth; persisted so it survives reloads.
+  const [draftKind, setDraftKind] = useState<"job" | "speculative">(() =>
+    localStorage.getItem("jbm_draft_kind") === "speculative" ? "speculative" : "job",
+  );
+  const changeDraftKind = useCallback((kind: "job" | "speculative") => {
+    setDraftKind(kind);
+    try {
+      localStorage.setItem("jbm_draft_kind", kind);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // User-resizable Jobomate pane (drag the divider between the browser and the panel).
   const [paneWidth, setPaneWidth] = useState(() => {
@@ -258,6 +271,8 @@ const App: React.FC = () => {
         onDownloads={() => handleSidebarToggle("downloads")}
         onSettings={() => setShowSettings(true)}
         activeView={showSidebar ? sidebarView : workspaceView}
+        draftKind={draftKind}
+        onDraftKindChange={changeDraftKind}
       />
     <div className="app">
       {/* Tab Bar */}
@@ -326,7 +341,11 @@ const App: React.FC = () => {
 
         {/* Jobomate workspace — the job-automation copilot, always docked on the right */}
         <div className="app__jbm-pane" style={{ width: paneWidth }}>
-          <JobomatePanel command={jobomateCommand} />
+          <JobomatePanel
+            command={jobomateCommand}
+            draftKind={draftKind}
+            onDraftKindChange={changeDraftKind}
+          />
         </div>
 
         {/* Sidebar */}

@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jobomate.Persistence;
 
 namespace Jobomate.Browser;
 
@@ -26,6 +27,7 @@ public sealed class LmBrowser
     private readonly SemaphoreSlim _gate = new(1, 1);
     private int _rpcId;
     private bool _running;
+    private string? _bridgeToken;
     private TaskCompletionSource<bool>? _resume;
 
     public bool IsRunning => _running;
@@ -92,6 +94,27 @@ public sealed class LmBrowser
 
     // ---------------------------------------------------------------- JSON-RPC ----
 
+    /// <summary>
+    /// The per-launch bearer token the Electron host writes to <c>bridge-auth.json</c> in the data dir.
+    /// The control server on :9222 rejects RPC without it (401), so every call must present it. Cached
+    /// once read; a 401 clears the cache so the next call re-reads (handles an engine that started before
+    /// the host wrote the file).
+    /// </summary>
+    private string? LoadBridgeToken()
+    {
+        if (_bridgeToken is not null) return _bridgeToken;
+        try
+        {
+            var path = Path.Combine(JobomatePaths.DataDir, "bridge-auth.json");
+            if (!File.Exists(path)) return null;
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            if (doc.RootElement.TryGetProperty("token", out var t) && t.ValueKind == JsonValueKind.String)
+                _bridgeToken = t.GetString();
+        }
+        catch { /* file missing / unreadable — caller falls through to a tokenless attempt */ }
+        return _bridgeToken;
+    }
+
     private async Task<JsonElement?> RpcAsync(string method, object? prms, CancellationToken ct)
     {
         var id = Interlocked.Increment(ref _rpcId);
@@ -102,15 +125,30 @@ public sealed class LmBrowser
             ["method"] = method,
             ["params"] = prms,
         });
-        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-        using var resp = await _http.PostAsync(RpcUrl, content, ct).ConfigureAwait(false);
-        var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.TryGetProperty("result", out var result))
+
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            if (result.ValueKind == JsonValueKind.Object && result.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
-                CurrentUrl = u.GetString() ?? CurrentUrl;
-            return result.Clone();
+            using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            using var req = new HttpRequestMessage(HttpMethod.Post, RpcUrl) { Content = content };
+            var token = LoadBridgeToken();
+            if (!string.IsNullOrEmpty(token))
+                req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
+            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            // 401 means our cached token is stale (host relaunched) — drop it and re-read once.
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized && attempt == 0)
+            {
+                _bridgeToken = null;
+                continue;
+            }
+            var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("result", out var result))
+            {
+                if (result.ValueKind == JsonValueKind.Object && result.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
+                    CurrentUrl = u.GetString() ?? CurrentUrl;
+                return result.Clone();
+            }
+            return null;
         }
         return null;
     }

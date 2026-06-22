@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 type ListenerDisposer = () => void;
 
@@ -84,6 +84,11 @@ contextBridge.exposeInMainWorld("browserAPI", {
   },
   dialog: {
     openCv: (): Promise<string | null> => ipcRenderer.invoke("dialog:open-cv"),
+  },
+  // Resolve a dropped File object to its absolute filesystem path. Electron 32+ removed File.path,
+  // so the renderer must go through webUtils.getPathForFile (only available in the preload context).
+  files: {
+    pathFor: (file: File): string => webUtils.getPathForFile(file),
   },
   // Loopback engine base URL + per-session auth token, so the React client can authenticate calls.
   engine: {

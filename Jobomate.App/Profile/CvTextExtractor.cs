@@ -43,6 +43,53 @@ public static class CvTextExtractor
         }
     }
 
+    /// <summary>
+    /// Extract readable text from ANY file the user drops into the chat, for use as LLM context.
+    /// Rich documents (PDF / DOCX / RTF) go through the dedicated extractors; everything else
+    /// (TXT, MD, CSV, JSON, HTML, source code, logs, …) is read as UTF-8 text. Files that look
+    /// binary (NUL bytes / mostly non-printable — images, archives, executables) return "" so the
+    /// caller can tell the user the current text model can't read them.
+    /// </summary>
+    public static string ExtractAnyText(string? path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return "";
+
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            switch (ext)
+            {
+                case ".pdf": return ExtractPdf(path!);
+                case ".docx": return ExtractDocx(path!);
+                case ".rtf": return ExtractRtf(path!);
+                case ".doc": return ""; // legacy binary Word — unsupported
+            }
+
+            var bytes = File.ReadAllBytes(path!);
+            if (bytes.Length == 0 || LooksBinary(bytes)) return "";
+            // Strip a UTF-8 BOM if present, then decode.
+            var start = (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) ? 3 : 0;
+            return Encoding.UTF8.GetString(bytes, start, bytes.Length - start).Trim();
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>Heuristic: sample the first 8 KB — any NUL byte, or &gt;30% control/non-text bytes, means binary.</summary>
+    private static bool LooksBinary(byte[] bytes)
+    {
+        int n = Math.Min(bytes.Length, 8192), nonText = 0;
+        for (int i = 0; i < n; i++)
+        {
+            byte b = bytes[i];
+            if (b == 0) return true;
+            if (b < 0x20 && b != 0x09 && b != 0x0A && b != 0x0D) nonText++;
+        }
+        return nonText > n * 0.30;
+    }
+
     private static string ExtractPdf(string path)
     {
         using var doc = PdfDocument.Open(path);

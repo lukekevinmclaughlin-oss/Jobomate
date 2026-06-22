@@ -44,7 +44,11 @@ const devServerUrl =
   process.env.VITE_DEV_SERVER_URL ||
   devServerArg?.replace("--dev-server=", "") ||
   "";
-const isDev = !electron.app.isPackaged && Boolean(devServerUrl);
+// Dev iff a dev-server URL was provided (env or --dev-server). We deliberately do NOT also gate on
+// !app.isPackaged: the dev shim renames the Electron binary to "Jobomate" (so the Dock reads
+// "Jobomate"), which makes app.isPackaged a false-positive. A real packaged build never receives a
+// dev-server URL, so this stays correct there.
+const isDev = Boolean(devServerUrl);
 const WINDOW_STATE_PATH = path.join(electron.app.getPath("userData"), "window-state.json");
 const BRIDGE_AUTH_PATH = path.join(electron.app.getPath("userData"), "bridge-auth.json");
 const DEFAULT_HOME = "https://www.google.com";

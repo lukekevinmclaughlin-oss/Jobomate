@@ -99,9 +99,17 @@ export interface EngineStatus {
   profileHeadline: string;
   sites: string[];
   persona: string;
+  attachments?: number;
   browserRunning: boolean;
   browserStatus: string;
   needsUser?: string | null;
+}
+
+export interface AttachmentRow {
+  id: string;
+  name: string;
+  chars: number;
+  readable: boolean;
 }
 
 export interface JobRow {
@@ -125,6 +133,7 @@ export interface CompanyRow {
 }
 export interface DraftRow {
   id: string;
+  kind: "job" | "speculative";
   company: string;
   role: string;
   status: string;
@@ -159,6 +168,21 @@ export const engine = {
   jobs: (): Promise<JobRow[]> => getArray<JobRow>("/api/jobs"),
   companies: (): Promise<CompanyRow[]> => getArray<CompanyRow>("/api/companies"),
   drafts: (): Promise<DraftRow[]> => getArray<DraftRow>("/api/drafts"),
+  // ---- chat attachments (drag-drop any file -> LLM context) ----
+  attach: (
+    path: string,
+  ): Promise<{
+    id?: string;
+    name?: string;
+    chars?: number;
+    readable?: boolean;
+    truncated?: boolean;
+    error?: string;
+  } | null> => post("/api/attach", { path }),
+  attachments: (): Promise<AttachmentRow[]> =>
+    getArray<AttachmentRow>("/api/attachments"),
+  deleteAttachment: (id: string): Promise<{ deleted: number } | null> =>
+    post("/api/attachments/delete", { id }),
   updateJob: (
     id: string,
     patch: Partial<

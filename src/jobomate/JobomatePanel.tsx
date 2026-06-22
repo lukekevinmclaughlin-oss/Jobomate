@@ -34,6 +34,7 @@ import {
   CompanyRow,
   DraftRow,
   ThreadRow,
+  AttachmentRow,
 } from "./api";
 import type { TrackerRow, CostsData } from "../types";
 
@@ -63,9 +64,13 @@ export interface JobomatePanelCommand {
 
 const uid = () => Math.random().toString(36).slice(2);
 
-export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> = ({
-  command,
-}) => {
+export const JobomatePanel: React.FC<{
+  command?: JobomatePanelCommand | null;
+  // The application-type focus is owned by the app shell (the big sidebar toggle) so it can live on
+  // the main UI; the panel reads it and reports changes back through onDraftKindChange.
+  draftKind?: "job" | "speculative";
+  onDraftKindChange?: (kind: "job" | "speculative") => void;
+}> = ({ command, draftKind = "job", onDraftKindChange }) => {
   const [status, setStatus] = useState<EngineStatus | null>(null);
   const [engineUp, setEngineUp] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -80,6 +85,16 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [companies, setCompanies] = useState<CompanyRow[]>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
+  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  // Which application type the drafts workflow is focused on. Filters the Drafts list AND scopes the
+  // "Draft" action so the model works on one type at a time (job postings ⇄ speculative/unsolicited).
+  // draftKind comes from props (the app-shell sidebar owns it). Keep the name `setDraftKind` so the
+  // existing in-panel toggles keep working; it just forwards to the shared setter.
+  const setDraftKind = useCallback(
+    (kind: "job" | "speculative") => onDraftKindChange?.(kind),
+    [onDraftKindChange],
+  );
   const [tracker, setTracker] = useState<TrackerRow[]>([]);
   const [costs, setCosts] = useState<CostsData | null>(null);
   const [showCosts, setShowCosts] = useState(false);
@@ -189,6 +204,11 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
     }
     try {
       setTracker(await engine.tracker());
+    } catch {
+      /* ignore */
+    }
+    try {
+      setAttachments(await engine.attachments());
     } catch {
       /* ignore */
     }
@@ -313,18 +333,24 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
 
   const deleteDraftsBulk = useCallback(
     async (all: boolean) => {
-      const ids = all ? [] : [...selDrafts];
-      if (!all && ids.length === 0) return;
+      // "all" is scoped to the currently-shown application type, so toggling Speculative and hitting
+      // "Delete all" never wipes the job-posting drafts (and vice versa).
+      const ids = all
+        ? drafts.filter((d) => d.kind === draftKind).map((d) => d.id)
+        : [...selDrafts];
+      if (ids.length === 0) return;
+      const typeLabel =
+        draftKind === "speculative" ? "speculative" : "job-posting";
       if (
         !window.confirm(
           all
-            ? `Delete all ${drafts.length} drafts in this chat?`
+            ? `Delete all ${ids.length} ${typeLabel} draft(s) shown?`
             : `Delete ${ids.length} selected draft(s)?`,
         )
       )
         return;
       try {
-        await engine.deleteDrafts(ids, all);
+        await engine.deleteDrafts(ids, false);
       } catch {
         /* ignore */
       }
@@ -332,7 +358,7 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
       await refreshData();
       await refreshStatus();
     },
-    [selDrafts, drafts.length, refreshData, refreshStatus],
+    [selDrafts, drafts, draftKind, refreshData, refreshStatus],
   );
 
   const deleteCompaniesBulk = useCallback(
@@ -400,6 +426,64 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
     }
     await refreshStatus();
     setBusy(null);
+  }, [refreshStatus]);
+
+  // Drop any file(s) into the composer: resolve each to a path, ingest its text into this chat's
+  // context so the connected model can read and apply it. Binary files (images, archives) attach but
+  // report as unreadable since the text model can't see them.
+  const attachDroppedFiles = useCallback(
+    async (files: File[]) => {
+      const pathFor = window.browserAPI?.files?.pathFor;
+      if (!pathFor) {
+        say("system", "Drag-and-drop attachments aren't available in this build.");
+        return;
+      }
+      setBusy("Reading dropped file(s)…");
+      for (const f of files) {
+        let path = "";
+        try {
+          path = pathFor(f);
+        } catch {
+          /* ignore */
+        }
+        if (!path) {
+          say("system", `Couldn't read “${f.name}”.`);
+          continue;
+        }
+        try {
+          const r = await engine.attach(path);
+          if (!r || r.error) {
+            say("system", `Couldn't attach “${f.name}”${r?.error ? ": " + r.error : ""}.`);
+          } else if (r.readable) {
+            say(
+              "system",
+              `Attached “${r.name}” (${r.chars?.toLocaleString()} chars${r.truncated ? ", truncated" : ""}) — I'll use it as context.`,
+            );
+          } else {
+            say(
+              "system",
+              `Attached “${r.name}”, but I couldn't read it as text (it looks binary, e.g. an image or archive). The current model reads text only.`,
+            );
+          }
+        } catch (e: any) {
+          say("system", `Couldn't attach “${f.name}”: ${e.message}`);
+        }
+      }
+      await engine.attachments().then(setAttachments).catch(() => {});
+      await refreshStatus();
+      setBusy(null);
+    },
+    [refreshStatus],
+  );
+
+  const removeAttachment = useCallback(async (id: string) => {
+    try {
+      await engine.deleteAttachment(id);
+    } catch {
+      /* ignore */
+    }
+    await engine.attachments().then(setAttachments).catch(() => {});
+    await refreshStatus();
   }, [refreshStatus]);
 
   useEffect(() => {
@@ -500,31 +584,48 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
     async (action: string) => {
       const isRecruiter = status?.mode === "Recruiter";
       switch (action) {
-        case "research":
+        case "research": {
+          // Job-seeker search mode follows the application-type toggle:
+          // "Apply to job postings" searches advertised jobs; "Speculative"
+          // searches companies to approach unsolicited. Recruiter mode always
+          // sources candidates.
+          const speculative = !isRecruiter && draftKind === "speculative";
           setBusy(
             isRecruiter
               ? "Sourcing candidates in the browser…"
-              : "Researching jobs in the browser…",
+              : speculative
+                ? "Finding companies to approach speculatively…"
+                : "Researching jobs in the browser…",
           );
           try {
-            const r = await engine.research("jobs");
+            const r = await engine.research(speculative ? "companies" : "jobs");
             say(
               "system",
-              isRecruiter
-                ? `Sourced ${r.jobs ?? 0} candidates.`
-                : `Collected ${r.jobs ?? 0} job postings.`,
+              !r
+                ? "Research couldn't reach the engine — check the model connection in Settings."
+                : speculative
+                  ? `Collected ${r.companies ?? 0} compan${(r.companies ?? 0) === 1 ? "y" : "ies"} to approach speculatively.`
+                  : isRecruiter
+                    ? `Sourced ${r.jobs ?? 0} candidates.`
+                    : `Collected ${r.jobs ?? 0} job postings.`,
             );
           } catch (e: any) {
             say("system", "Research failed: " + e.message);
           }
           await refreshData();
-          setTab("jobs");
+          setTab(speculative ? "companies" : "jobs");
           break;
+        }
         case "companies":
           setBusy("Researching companies in the browser…");
           try {
             const r = await engine.research("companies");
-            say("system", `Collected ${r.companies ?? 0} companies.`);
+            say(
+              "system",
+              !r
+                ? "Research couldn't reach the engine — check the model connection in Settings."
+                : `Collected ${r.companies ?? 0} companies.`,
+            );
           } catch (e: any) {
             say("system", "Research failed: " + e.message);
           }
@@ -541,17 +642,26 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
               : `${jobs.length} postings collected — see the Jobs tab below.`,
           );
           break;
-        case "draft":
+        case "draft": {
+          // Scope drafting to the toggled application type: speculative -> from collected companies,
+          // job postings -> from collected jobs. The model works on one type at a time.
+          const spec = draftKind === "speculative";
           setBusy(
-            isRecruiter ? "Drafting outreach…" : "Drafting tailored applications…",
+            spec
+              ? "Drafting speculative applications…"
+              : isRecruiter
+                ? "Drafting outreach…"
+                : "Drafting tailored applications…",
           );
           try {
-            const r = await engine.draft("job");
+            const r = await engine.draft(spec ? "company" : "job");
             say(
               "system",
-              isRecruiter
-                ? `Drafted ${r.drafted ?? 0} outreach messages. Review them in the Drafts tab.`
-                : `Drafted ${r.drafted ?? 0} applications. Review them in the Drafts tab.`,
+              spec
+                ? `Drafted ${r.drafted ?? 0} speculative application(s). Review them in the Drafts tab.`
+                : isRecruiter
+                  ? `Drafted ${r.drafted ?? 0} outreach messages. Review them in the Drafts tab.`
+                  : `Drafted ${r.drafted ?? 0} applications. Review them in the Drafts tab.`,
             );
           } catch (e: any) {
             say("system", "Draft failed: " + e.message);
@@ -559,6 +669,7 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
           await refreshData();
           setTab("drafts");
           break;
+        }
         case "approve":
           setBusy("Approving drafts…");
           try {
@@ -608,7 +719,7 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
       setBusy(null);
       await refreshStatus();
     },
-    [jobs.length, refreshData, refreshStatus, status?.mode],
+    [jobs.length, refreshData, refreshStatus, status?.mode, draftKind],
   );
 
   const send = useCallback(async () => {
@@ -619,6 +730,11 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
     setBusy("Thinking…");
     try {
       const r = await engine.chat(text);
+      if (!r) {
+        say("system", "Couldn't reach the engine — open Settings and check the model connection.");
+        setBusy(null);
+        return;
+      }
       if (r.text) say("assistant", r.text);
       setBusy(null);
       for (const a of r.actions || []) await runAction(a);
@@ -736,7 +852,9 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
     async (mode: "JobSeeker" | "Recruiter") => {
       if (busy || status?.mode === mode) return;
       try {
-        setStatus(await engine.setMode(mode));
+        const s = await engine.setMode(mode);
+        if (s) setStatus(s);
+        else say("system", "Couldn't switch mode — engine unreachable. Check the model connection in Settings.");
       } catch {
         /* ignore */
       }
@@ -744,6 +862,13 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
     },
     [busy, status?.mode, refreshData],
   );
+  // ---- job-seeker application mode (apply to postings vs speculative) ----
+  // Drives both the Discover search target (jobs vs companies) and which
+  // application type gets drafted. Switching also reveals the matching tab.
+  const setSeekMode = useCallback((kind: "job" | "speculative") => {
+    setDraftKind(kind);
+    setTab(kind === "speculative" ? "companies" : "jobs");
+  }, [setDraftKind]);
   const L = recruiter
     ? {
         rowsTab: "Candidates",
@@ -791,6 +916,13 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
     () => drafts.filter((d) => d.status.toLowerCase() === "draft"),
     [drafts],
   );
+  // Drafts split by application type; the Drafts tab shows one type at a time (see draftKind toggle).
+  const jobDrafts = useMemo(() => drafts.filter((d) => d.kind === "job"), [drafts]);
+  const specDrafts = useMemo(
+    () => drafts.filter((d) => d.kind === "speculative"),
+    [drafts],
+  );
+  const visibleDrafts = draftKind === "speculative" ? specDrafts : jobDrafts;
   const approvedDrafts = useMemo(
     () => drafts.filter((d) => d.status.toLowerCase() === "approved"),
     [drafts],
@@ -908,7 +1040,11 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
   }, [quick, scheduleSend, scoreAll, status?.queued, workflowStage]);
 
   const primaryAction = {
-    discover: recruiter ? "Find candidates" : "Find jobs",
+    discover: recruiter
+      ? "Find candidates"
+      : draftKind === "speculative"
+        ? "Find companies"
+        : "Find jobs",
     evaluate: recruiter ? "Score candidates" : "Score jobs",
     draft: recruiter ? "Draft outreach" : "Draft applications",
     approve: "Approve drafts",
@@ -950,28 +1086,55 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
         <div className="jbm__brand">
           <Bot size={16} /> <span>Jobomate</span>
         </div>
-        <div
-          className="jbm__modeToggle"
-          role="group"
-          aria-label="App mode"
-          title="Switch between finding work (job seeker) and finding candidates (recruiter)"
-        >
-          <button
-            className={!recruiter ? "on" : ""}
-            onClick={() => switchMode("JobSeeker")}
-            disabled={!!busy || !engineUp}
-            title="Job seeker — find work and apply"
+        <div className="jbm__modeCluster">
+          <div
+            className={`jbm__modeToggle ${recruiter ? "is-recruiter" : "is-seeker"}`}
+            role="group"
+            aria-label="App mode"
+            title="Switch between finding work (job seeker) and finding candidates (recruiter)"
           >
-            <Briefcase size={12} /> Job seeker
-          </button>
-          <button
-            className={recruiter ? "on" : ""}
-            onClick={() => switchMode("Recruiter")}
-            disabled={!!busy || !engineUp}
-            title="Recruiter — find candidates and reach out"
-          >
-            <Users size={12} /> Recruiter
-          </button>
+            <button
+              className={`jbm__seekerBtn ${!recruiter ? "on" : ""}`}
+              onClick={() => switchMode("JobSeeker")}
+              disabled={!!busy || !engineUp}
+              title="Job seeker — find work and apply"
+            >
+              <Briefcase size={12} /> Job seeker
+            </button>
+            <button
+              className={`jbm__recruiterBtn ${recruiter ? "on" : ""}`}
+              onClick={() => switchMode("Recruiter")}
+              disabled={!!busy || !engineUp}
+              title="Recruiter — find candidates and reach out"
+            >
+              <Users size={12} /> Recruiter
+            </button>
+          </div>
+          {!recruiter && (
+            <div
+              className={`jbm__seekToggle ${draftKind === "speculative" ? "is-spec" : "is-postings"}`}
+              role="group"
+              aria-label="Application mode"
+              title="Apply to advertised job postings, or send speculative applications to companies that aren't advertising"
+            >
+              <button
+                className={`jbm__postingsBtn ${draftKind === "job" ? "on" : ""}`}
+                onClick={() => setSeekMode("job")}
+                disabled={!!busy || !engineUp}
+                title="Apply to advertised job postings"
+              >
+                <FileText size={12} /> Job postings
+              </button>
+              <button
+                className={`jbm__specBtn ${draftKind === "speculative" ? "on" : ""}`}
+                onClick={() => setSeekMode("speculative")}
+                disabled={!!busy || !engineUp}
+                title="Send speculative applications to companies that aren't advertising"
+              >
+                <Send size={12} /> Speculative
+              </button>
+            </div>
+          )}
         </div>
         <div className="jbm__status">
           {!engineUp ? (
@@ -1327,6 +1490,29 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
           </button>
         </div>
 
+        {tab === "drafts" && (
+          <div className="jbm__draftKindToggle" role="tablist" aria-label="Application type">
+            <button
+              role="tab"
+              aria-selected={draftKind === "job"}
+              className={`jbm__jobKindBtn ${draftKind === "job" ? "on" : ""}`}
+              onClick={() => setDraftKind("job")}
+              title="Applications to specific job postings you collected"
+            >
+              Job postings ({jobDrafts.length})
+            </button>
+            <button
+              role="tab"
+              aria-selected={draftKind === "speculative"}
+              className={`jbm__specKindBtn ${draftKind === "speculative" ? "on" : ""}`}
+              onClick={() => setDraftKind("speculative")}
+              title="Speculative / unsolicited applications to target companies"
+            >
+              Speculative ({specDrafts.length})
+            </button>
+          </div>
+        )}
+
         {tab === "jobs" && jobs.length > 0 && (
           <div className="jbm__resultBar">
             <label>
@@ -1393,17 +1579,20 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
             </button>
           </div>
         )}
-        {tab === "drafts" && drafts.length > 0 && (
+        {tab === "drafts" && visibleDrafts.length > 0 && (
           <div className="jbm__resultBar">
             <label>
               <input
                 type="checkbox"
-                checked={selDrafts.size === drafts.length}
+                checked={
+                  visibleDrafts.length > 0 &&
+                  visibleDrafts.every((d) => selDrafts.has(d.id))
+                }
                 onChange={() =>
                   setSelDrafts(
-                    selDrafts.size === drafts.length
+                    visibleDrafts.every((d) => selDrafts.has(d.id))
                       ? new Set()
-                      : new Set(drafts.map((d) => d.id)),
+                      : new Set(visibleDrafts.map((d) => d.id)),
                   )
                 }
               />{" "}
@@ -1437,10 +1626,10 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
             <span>Contact</span>
           </div>
         )}
-        {tab === "drafts" && drafts.length > 0 && (
+        {tab === "drafts" && visibleDrafts.length > 0 && (
           <div className="jbm__tableHead">
             <span />
-            <span>Draft</span>
+            <span>{draftKind === "speculative" ? "Speculative application" : "Application"}</span>
             <span>Status</span>
           </div>
         )}
@@ -1599,7 +1788,7 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
             </div>
           )}
           {tab === "drafts" &&
-            drafts.map((d) => (
+            visibleDrafts.map((d) => (
               <div
                 key={d.id}
                 className={`jbm__job ${selDrafts.has(d.id) ? "is-sel" : ""} ${selectedKey === `draft:${d.id}` ? "is-active" : ""}`}
@@ -1664,9 +1853,15 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
                 </div>
               </div>
             ))}
-          {tab === "drafts" && drafts.length === 0 && (
+          {tab === "drafts" && visibleDrafts.length === 0 && (
             <div className="jbm__none">
-              {L.draftsEmpty}
+              {draftKind === "speculative"
+                ? drafts.length > 0
+                  ? "No speculative applications yet — collect companies, then “Draft”. (You have job-posting drafts under the other tab.)"
+                  : "No speculative applications yet — collect companies in the Companies tab, then “Draft”."
+                : drafts.length > 0
+                  ? "No job-posting applications yet — collect jobs, then “Draft”. (You have speculative drafts under the other tab.)"
+                  : L.draftsEmpty}
             </div>
           )}
           {tab === "tracker" &&
@@ -2000,7 +2195,50 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
         title="Drag to resize the message box"
       />
 
-      <div className="jbm__composer">
+      {attachments.length > 0 && (
+        <div className="jbm__attachments">
+          {attachments.map((a) => (
+            <span
+              key={a.id}
+              className={"jbm__chip" + (a.readable ? "" : " jbm__chip--warn")}
+              title={
+                a.readable
+                  ? `${a.chars.toLocaleString()} characters available to the model`
+                  : "Couldn't read this file as text (binary / image)"
+              }
+            >
+              <Paperclip size={11} />
+              <span className="jbm__chipName">{a.name}</span>
+              <button
+                className="jbm__chipX"
+                onClick={() => removeAttachment(a.id)}
+                aria-label={`Remove ${a.name}`}
+                title="Remove"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div
+        className={"jbm__composer" + (dragOver ? " jbm__composer--drop" : "")}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!dragOver) setDragOver(true);
+        }}
+        onDragEnter={(e) => e.preventDefault()}
+        onDragLeave={(e) => {
+          if (e.currentTarget === e.target) setDragOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const files = Array.from(e.dataTransfer?.files ?? []);
+          if (files.length) attachDroppedFiles(files);
+        }}
+      >
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -2010,7 +2248,7 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
               send();
             }
           }}
-          placeholder="Message Jobomate…  (e.g. “find recent backend jobs”)"
+          placeholder="Message Jobomate…  (drag any file here to add it as context)"
           style={{ height: composerH }}
         />
         <button
@@ -2020,6 +2258,9 @@ export const JobomatePanel: React.FC<{ command?: JobomatePanelCommand | null }> 
         >
           <Send size={16} />
         </button>
+        {dragOver && (
+          <div className="jbm__dropHint">Drop file(s) — I'll read them for context</div>
+        )}
       </div>
 
       {editing && (

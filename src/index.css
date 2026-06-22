@@ -1319,6 +1319,141 @@ textarea {
     cursor: default;
 }
 
+/* ── Assistant file attachments ────────────────────────────────── */
+.assistant-panel__composer-actions {
+    align-self: end;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.assistant-panel__attach {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-primary);
+    border-radius: 50%;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.assistant-panel__attach:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+}
+
+.assistant-panel__attach:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.assistant-panel__dropzone {
+    position: relative;
+}
+
+.assistant-panel__dropzone--over {
+    outline: 2px dashed var(--border-focus);
+    outline-offset: -4px;
+}
+
+.assistant-panel__drop-hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+}
+
+.assistant-panel__file-input {
+    display: none;
+}
+
+.assistant-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px 0;
+}
+
+.assistant-attachment {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 4px 6px 4px 8px;
+    border: 1px solid var(--border-primary);
+    border-radius: 999px;
+    background: var(--bg-primary);
+    font-size: 11px;
+    color: var(--text-primary);
+}
+
+.assistant-attachment > svg {
+    color: var(--text-secondary);
+    flex: 0 0 auto;
+}
+
+.assistant-attachment__name {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.assistant-attachment__size {
+    color: var(--text-secondary);
+    flex: 0 0 auto;
+}
+
+.assistant-attachment__remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.assistant-attachment__remove:hover {
+    background: var(--border-primary);
+    color: var(--text-primary);
+}
+
+.assistant-message__attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.assistant-message__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--border-primary);
+    font-size: 10px;
+    color: var(--text-secondary);
+}
+
+.assistant-message__chip svg {
+    flex: 0 0 auto;
+}
+
 /* ── Sidebar ───────────────────────────────────────────────────── */
 .sidebar-panel {
     padding: 16px;
@@ -1802,7 +1937,78 @@ textarea {
     background: var(--accent-blue, var(--accent-primary, #2563eb));
     color: #fff;
 }
+/* Distinct colour per app mode so which mode you're in is unmistakable:
+   Job seeker = emerald, Recruiter = violet. (Higher specificity wins over the generic .on above.) */
+.jbm__modeToggle button.jbm__seekerBtn.on {
+    background: #10b981;
+    color: #fff;
+}
+.jbm__modeToggle button.jbm__recruiterBtn.on {
+    background: #7c3aed;
+    color: #fff;
+}
+/* A faint ring echoes the active mode's colour across the whole control. */
+.jbm__modeToggle.is-seeker {
+    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.5);
+}
+.jbm__modeToggle.is-recruiter {
+    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.5);
+}
 .jbm__modeToggle button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+/* Job-seeker application-mode sub-toggle, grouped beside the app-mode toggle. */
+.jbm__modeCluster {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.jbm__seekToggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    padding: 2px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-full);
+}
+.jbm__seekToggle button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 4px 10px;
+    border: none;
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition:
+        background 0.12s ease,
+        color 0.12s ease;
+}
+.jbm__seekToggle button:hover:not(.on):not(:disabled) {
+    color: var(--text-primary);
+}
+/* Apply-to-postings = green, Speculative = orange, per the active selection. */
+.jbm__seekToggle button.jbm__postingsBtn.on {
+    background: #16a34a;
+    color: #fff;
+}
+.jbm__seekToggle button.jbm__specBtn.on {
+    background: #f97316;
+    color: #fff;
+}
+.jbm__seekToggle.is-postings {
+    box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.5);
+}
+.jbm__seekToggle.is-spec {
+    box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.5);
+}
+.jbm__seekToggle button:disabled {
     opacity: 0.5;
     cursor: default;
 }
@@ -2186,6 +2392,104 @@ textarea {
 .jbm__sendBtn:disabled {
     opacity: 0.4;
     cursor: default;
+}
+
+/* --- Chat attachments (drag-drop any file -> LLM context) --- */
+.jbm__composer {
+    position: relative; /* anchor the drop hint */
+}
+.jbm__composer--drop {
+    outline: 2px dashed var(--accent-blue);
+    outline-offset: -4px;
+    background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
+}
+.jbm__dropHint {
+    position: absolute;
+    inset: 4px;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+    color: var(--accent-blue);
+    font-size: 12px;
+    font-weight: 600;
+}
+.jbm__attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px 0;
+}
+.jbm__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 220px;
+    padding: 3px 6px 3px 8px;
+    font-size: 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary, var(--bg-primary));
+    color: var(--text-primary);
+}
+.jbm__chip--warn {
+    border-color: #e0a13a;
+    background: color-mix(in srgb, #e0a13a 14%, transparent);
+}
+.jbm__chipName {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.jbm__chipX {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary, var(--text-primary));
+    cursor: pointer;
+}
+.jbm__chipX:hover {
+    background: var(--border-primary);
+}
+
+/* --- Draft type toggle (job postings vs speculative) --- */
+.jbm__draftKindToggle {
+    display: flex;
+    gap: 4px;
+    padding: 8px 12px 0;
+}
+.jbm__draftKindToggle button {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    color: var(--text-secondary, var(--text-primary));
+    cursor: pointer;
+}
+.jbm__draftKindToggle button.on {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: #fff;
+}
+/* Distinct colour per application type: job postings = blue, speculative = amber. */
+.jbm__draftKindToggle button.jbm__jobKindBtn.on {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+}
+.jbm__draftKindToggle button.jbm__specKindBtn.on {
+    background: #d97706;
+    border-color: #d97706;
+    color: #fff;
 }
 
 /* --- Chats (threads) bar + dropdown --- */

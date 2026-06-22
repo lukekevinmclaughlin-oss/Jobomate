@@ -18,9 +18,13 @@ function dotnetRoot(): string {
 /** Locate the engine: a bundled self-contained binary in production, or the dev build in the repo. */
 function findEngine(): { cmd: string; args: string[] } | null {
   const port = String(ENGINE_PORT);
-  if (electron.app.isPackaged) {
-    const bin = path.join(process.resourcesPath, "engine", "Jobomate");
-    return fs.existsSync(bin) ? { cmd: bin, args: ["--engine", "--port", port] } : null;
+  // Packaged: the self-contained binary bundled under Resources. Guard on its EXISTENCE rather than
+  // app.isPackaged alone — the dev shim renames the Electron binary to "Jobomate" (for the Dock
+  // label), which makes app.isPackaged a false-positive; without this guard dev would look here,
+  // find nothing, and fail to start the engine. A real packaged build has this file, so it wins.
+  const packagedBin = path.join(process.resourcesPath, "engine", "Jobomate");
+  if (electron.app.isPackaged && fs.existsSync(packagedBin)) {
+    return { cmd: packagedBin, args: ["--engine", "--port", port] };
   }
   const root = path.join(__dirname, ".."); // dist-electron/.. == repo root
   const nativeBin = path.join(root, "bin", "engine", "Jobomate");

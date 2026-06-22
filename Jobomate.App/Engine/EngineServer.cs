@@ -62,11 +62,21 @@ public static class EngineServer
     {
         var req = ctx.Request;
         var res = ctx.Response;
-        // When a session token is required we do NOT advertise a wildcard CORS origin — there is no
-        // legitimate cross-origin caller. The token itself is the real protection; this just avoids
-        // telling a browser the response is cross-origin readable. In open (dev) mode keep it simple.
+        // CORS. In open (dev/CLI) mode any origin is fine. When a session token guards the API the token
+        // (a per-launch secret only the app's own renderer holds) is the real protection — but the
+        // renderer ALWAYS calls cross-origin (dev: http://localhost:5173; packaged: file:// → Origin
+        // "null"), so without a matching Access-Control-Allow-Origin the browser blocks every response
+        // and the whole UI silently fails. We therefore reflect ACAO for the app's own trusted local
+        // origins only; pages the user opens in the in-app browser have real http(s) origins, are never
+        // reflected here, and lack the token regardless — so this does not re-open the API to them.
+        var origin = req.Headers["Origin"];
         if (_authToken.Length == 0)
             res.AddHeader("Access-Control-Allow-Origin", "*");
+        else if (IsTrustedLocalOrigin(origin))
+        {
+            res.AddHeader("Access-Control-Allow-Origin", origin!);
+            res.AddHeader("Vary", "Origin");
+        }
         res.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
         res.AddHeader("Access-Control-Allow-Headers", "Content-Type, " + TokenHeader);
 
@@ -93,6 +103,21 @@ public static class EngineServer
             Console.Error.WriteLine("[engine] route error: " + ex);
             try { await WriteJsonAsync(res, 500, new { error = ex.Message }).ConfigureAwait(false); } catch { }
         }
+    }
+
+    /// <summary>
+    /// CORS allow-list when token auth is on: the app's own renderer only. Dev serves it from
+    /// http://localhost:5173 (or 127.0.0.1); packaged loads it from file://, whose fetch Origin is the
+    /// literal "null". Pages the user browses to in the in-app browser have real http(s) origins and are
+    /// never trusted here (and never hold the token regardless).
+    /// </summary>
+    internal static bool IsTrustedLocalOrigin(string? origin)
+    {
+        if (string.IsNullOrEmpty(origin)) return false;
+        if (origin == "null") return true; // file:// (packaged renderer)
+        return Uri.TryCreate(origin, UriKind.Absolute, out var u)
+            && (u.Scheme == "http" || u.Scheme == "https")
+            && (u.Host == "localhost" || u.Host == "127.0.0.1" || u.Host == "::1");
     }
 
     /// <summary>Constant-time comparison of the presented token against the session token.</summary>
@@ -137,6 +162,11 @@ public static class EngineServer
 
             // ---- CV ----
             case "/api/cv": return await e.LoadCvAsync(S("path")).ConfigureAwait(false);
+
+            // ---- chat attachments (any dropped file -> LLM context) ----
+            case "/api/attach": return e.AttachFile(S("path"));
+            case "/api/attachments": return e.Attachments();
+            case "/api/attachments/delete": return e.DeleteAttachment(S("id"));
 
             // ---- research ----
             case "/api/research":

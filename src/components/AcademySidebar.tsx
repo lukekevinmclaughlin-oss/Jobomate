@@ -38,6 +38,9 @@ interface AcademySidebarProps {
   onAssistant?: () => void;
   onSettings: () => void;
   activeView: AcademySidebarView;
+  /** Which application type the workflow is focused on (drives the Draft action + Drafts list). */
+  draftKind?: "job" | "speculative";
+  onDraftKindChange?: (kind: "job" | "speculative") => void;
 }
 
 /**
@@ -61,6 +64,8 @@ export const AcademySidebar: React.FC<AcademySidebarProps> = ({
   onAssistant,
   onSettings,
   activeView,
+  draftKind = "job",
+  onDraftKindChange,
 }) => {
   const item = (
     label: string,
@@ -102,6 +107,34 @@ export const AcademySidebar: React.FC<AcademySidebarProps> = ({
       {item("Downloads", Download, onDownloads, activeView === "downloads")}
 
       <div className="academy-sidebar__spacer" />
+
+      {onDraftKindChange && (
+        <div className="academy-sidebar__mode" role="group" aria-label="Application type">
+          <div className="academy-sidebar__mode-label">Application type</div>
+          <div className="academy-sidebar__mode-toggle">
+            <button
+              type="button"
+              className={`academy-sidebar__mode-btn academy-sidebar__mode-btn--job${draftKind === "job" ? " on" : ""}`}
+              onClick={() => onDraftKindChange("job")}
+              aria-pressed={draftKind === "job"}
+              title="Work on applications to posted jobs you collected"
+            >
+              <ListChecks size={16} strokeWidth={2} />
+              <span>Job postings</span>
+            </button>
+            <button
+              type="button"
+              className={`academy-sidebar__mode-btn academy-sidebar__mode-btn--spec${draftKind === "speculative" ? " on" : ""}`}
+              onClick={() => onDraftKindChange("speculative")}
+              aria-pressed={draftKind === "speculative"}
+              title="Work on speculative / unsolicited applications to target companies"
+            >
+              <Sparkles size={16} strokeWidth={2} />
+              <span>Speculative</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <button
         type="button"
