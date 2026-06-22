@@ -157,11 +157,14 @@ public static class EngineServer
                 }
                 return e.Status();
 
+            // ---- stop: interrupt any in-flight LLM/browser work (user can stop/start at will) ----
+            case "/api/stop": return e.StopLlm();
+
             // ---- chat ----
-            case "/api/chat": return await e.ChatAsync(S("text")).ConfigureAwait(false);
+            case "/api/chat": return await e.ChatAsync(S("text"), e.OpToken).ConfigureAwait(false);
 
             // ---- CV ----
-            case "/api/cv": return await e.LoadCvAsync(S("path")).ConfigureAwait(false);
+            case "/api/cv": return await e.LoadCvAsync(S("path"), e.OpToken).ConfigureAwait(false);
 
             // ---- chat attachments (any dropped file -> LLM context) ----
             case "/api/attach": return e.AttachFile(S("path"));
@@ -172,7 +175,7 @@ public static class EngineServer
             case "/api/research":
             {
                 var urlArg = S("url");
-                return await e.ResearchAsync(S("goal"), string.IsNullOrWhiteSpace(urlArg) ? null : urlArg, _ => { }).ConfigureAwait(false);
+                return await e.ResearchAsync(S("goal"), string.IsNullOrWhiteSpace(urlArg) ? null : urlArg, _ => { }, e.OpToken).ConfigureAwait(false);
             }
 
             // ---- repos ----
@@ -197,7 +200,7 @@ public static class EngineServer
             case "/api/thread/delete": return e.DeleteThreads(Arr("ids"));
 
             // ---- drafting / approval / send ----
-            case "/api/draft": return await e.DraftAsync(S("kind"), Arr("ids")).ConfigureAwait(false);
+            case "/api/draft": return await e.DraftAsync(S("kind"), Arr("ids"), e.OpToken).ConfigureAwait(false);
             case "/api/approve": return e.Approve(Arr("ids"));
             case "/api/schedule": return e.Schedule();
             case "/api/send": return await e.SendDueAsync().ConfigureAwait(false);
@@ -210,8 +213,8 @@ public static class EngineServer
             case "/api/email/create-drafts": return await e.CreateGmailDraftsAsync().ConfigureAwait(false);
 
             // ---- job fit ----
-            case "/api/jobs/score": return await e.ScoreJobFit(S("id")).ConfigureAwait(false);
-            case "/api/jobs/score-all": return await e.ScoreAllJobs().ConfigureAwait(false);
+            case "/api/jobs/score": return await e.ScoreJobFit(S("id"), e.OpToken).ConfigureAwait(false);
+            case "/api/jobs/score-all": return await e.ScoreAllJobs(e.OpToken).ConfigureAwait(false);
 
             // ---- application tracker ----
             case "/api/tracker": return e.Tracker();

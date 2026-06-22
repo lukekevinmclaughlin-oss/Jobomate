@@ -31,6 +31,27 @@ public sealed class JobomateEngine
     private readonly List<ChatMessage> _history = new();
     private string _activeThreadId = "";
 
+    // Cancellation for in-flight LLM/browser work. Long-running endpoints run with OpToken; StopLlm()
+    // cancels them (the user's "Stop") and rotates the source so the next action starts clean.
+    private CancellationTokenSource _opCts = new();
+    public CancellationToken OpToken => _opCts.Token;
+
+    /// <summary>
+    /// Interrupt any in-flight LLM / browser operation (chat generation, the research loop, scoring,
+    /// drafting). Idempotent, and leaves the engine ready to start a fresh operation immediately — the
+    /// user can stop and start whenever they want. Also resumes a paused browser wait so the agent
+    /// unblocks and exits its loop.
+    /// </summary>
+    public object StopLlm()
+    {
+        var old = _opCts;
+        _opCts = new CancellationTokenSource();
+        try { old.Cancel(); } catch { /* already disposed/cancelled */ }
+        old.Dispose();
+        try { Services.Browser.Resume(); } catch { /* no paused wait */ }
+        return new { stopped = true };
+    }
+
     public JobomateEngine()
     {
         // Optional injection path (headless/dev, or when the parent app wants to hand the engine its key
@@ -235,6 +256,7 @@ public sealed class JobomateEngine
         var messages = BuildMessages(text);
         string resp;
         try { resp = await Services.Llm.CompleteAsync(Services.LlmConfig, messages, new LlmCallOptions(MaxOutputTokens: 1000), ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) { return new { text = "⏹ Stopped.", actions = Array.Empty<string>(), stopped = true }; }
         catch (Exception ex) { return new { text = "The model hit a problem: " + ex.Message, actions = Array.Empty<string>() }; }
 
         var (clean, actions) = ParseDirectives(resp ?? "");
@@ -714,7 +736,7 @@ public sealed class JobomateEngine
     }
 
     /// <summary>Score a single job; returns true on a successful LLM scoring, false on any failure.</summary>
-    private async Task<bool> ScoreJobFitCore(JobPosting job)
+    private async Task<bool> ScoreJobFitCore(JobPosting job, CancellationToken ct = default)
     {
         try
         {
@@ -726,7 +748,7 @@ public sealed class JobomateEngine
                     new ChatMessage("user", BuildFitPrompt(Services.Profile, job)),
                 },
                 new LlmCallOptions(MaxOutputTokens: 200),
-                CancellationToken.None).ConfigureAwait(false);
+                ct).ConfigureAwait(false);
 
             var (fitScore, explanation) = ParseFitResponse(resp);
             job.FitScore = fitScore;
@@ -741,25 +763,29 @@ public sealed class JobomateEngine
     }
 
     /// <summary>Ask the configured LLM to score how well a job matches the candidate (0–100).</summary>
-    public async Task<object> ScoreJobFit(string jobId)
+    public async Task<object> ScoreJobFit(string jobId, CancellationToken ct = default)
     {
         var job = Services.JobRepo.Get(jobId);
         if (job is null) return new { error = "job not found" };
         if (!LlmConfigured()) return new { error = "Connect a model first" };
 
-        return await ScoreJobFitCore(job).ConfigureAwait(false)
+        return await ScoreJobFitCore(job, ct).ConfigureAwait(false)
             ? new { fitScore = job.FitScore, explanation = job.FitExplanation }
             : new { error = "Scoring failed" };
     }
 
-    /// <summary>Score every job in the active thread (sequentially; counts only successful scorings).</summary>
-    public async Task<object> ScoreAllJobs()
+    /// <summary>Score every job in the active thread (sequentially; counts only successful scorings).
+    /// Stops early — returning what it managed — if the user cancels via StopLlm().</summary>
+    public async Task<object> ScoreAllJobs(CancellationToken ct = default)
     {
         if (!LlmConfigured()) return new { error = "Connect a model first" };
         var jobs = Services.JobRepo.All().Where(j => j.ThreadId == _activeThreadId).ToList();
         var scored = 0;
         foreach (var j in jobs)
-            if (await ScoreJobFitCore(j).ConfigureAwait(false)) scored++;
+        {
+            if (ct.IsCancellationRequested) return new { scored, of = jobs.Count, stopped = true };
+            if (await ScoreJobFitCore(j, ct).ConfigureAwait(false)) scored++;
+        }
         return new { scored, of = jobs.Count };
     }
 

@@ -10,6 +10,7 @@ import {
   Mail,
   Play,
   Loader2,
+  Square,
   Pencil,
   Trash2,
   Eye,
@@ -1014,6 +1015,20 @@ export const JobomatePanel: React.FC<{
     setBusy(null);
   }, [busy, recruiter, refreshData]);
 
+  // Stop button: interrupt whatever the model/browser is doing right now. The engine cancels the
+  // in-flight operation (its fetch then resolves); we clear the busy state immediately so the user
+  // gets instant feedback and can start again whenever they want.
+  const stopLlm = useCallback(async () => {
+    try {
+      await engine.stop();
+    } catch {
+      /* ignore */
+    }
+    setBusy(null);
+    say("system", "⏹ Stopped.");
+    await refreshStatus();
+  }, [refreshStatus]);
+
   const runPrimaryStageAction = useCallback(async () => {
     switch (workflowStage) {
       case "discover":
@@ -1435,6 +1450,13 @@ export const JobomatePanel: React.FC<{
         {busy && (
           <div className="jbm__busy">
             <Loader2 size={14} className="jbm__spin" /> {busy}
+            <button
+              className="jbm__stopBtn"
+              onClick={stopLlm}
+              title="Stop — interrupt the model right now"
+            >
+              <Square size={11} fill="currentColor" /> Stop
+            </button>
           </div>
         )}
       </div>

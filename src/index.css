@@ -2117,6 +2117,23 @@ textarea {
     color: var(--text-secondary);
     font-size: 12px;
 }
+.jbm__stopBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 650;
+    border: 1px solid var(--accent-red, #e5484d);
+    border-radius: 999px;
+    background: var(--accent-red, #e5484d);
+    color: #fff;
+    cursor: pointer;
+}
+.jbm__stopBtn:hover {
+    filter: brightness(0.93);
+}
 .jbm__spin {
     animation: jbm-spin 1s linear infinite;
 }

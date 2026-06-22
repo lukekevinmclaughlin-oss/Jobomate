@@ -162,6 +162,8 @@ export interface ThreadMessages {
 
 export const engine = {
   status: (): Promise<EngineStatus> => get("/api/status"),
+  // Interrupt any in-flight LLM/browser work (chat, research, scoring, drafting). Safe to call any time.
+  stop: (): Promise<{ stopped?: boolean } | null> => post("/api/stop"),
   chat: (text: string): Promise<ChatReply> => post("/api/chat", { text }),
   research: (goal: "jobs" | "companies", url?: string): Promise<any> =>
     post("/api/research", { goal, url }),
