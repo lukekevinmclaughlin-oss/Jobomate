@@ -4,6 +4,7 @@ import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { BrowserController } from "./llm-server";
+import { extractAttachments, buildAttachmentContext, type AttachmentInput } from "./attachments";
 
 export type AppConnectionType =
   | "ApiKey"
@@ -681,17 +682,20 @@ export class LlmConnectionManager {
   }
 
   async sendPrompt(input: {
-    prompt: string;
+    prompt?: string;
     history?: AssistantChatMessage[];
+    attachments?: AttachmentInput[];
   }): Promise<AssistantResponse> {
-    const prompt = input.prompt.trim();
-    if (!prompt) throw new Error("Prompt is required.");
+    const prompt = (input.prompt || "").trim();
+    const attachments = Array.isArray(input.attachments) ? input.attachments : [];
+    if (!prompt && attachments.length === 0) throw new Error("Prompt is required.");
 
     const config = await this.loadConfig();
+    const userContent = await this.composeUserTurn(prompt, attachments);
     const messages: LlmMessage[] = [
       { role: "system", content: this.systemPrompt(config) },
       ...this.historyMessages(input.history || []),
-      { role: "user", content: prompt },
+      { role: "user", content: userContent },
     ];
     const tools = browserToolDefinitions();
     const toolRuns: AssistantToolRun[] = [];
@@ -1164,10 +1168,23 @@ export class LlmConnectionManager {
       "Work efficiently: prefer the fewest tool calls and don't re-inspect the page unless something changed. " +
       "To search the web, navigate directly to the results URL (e.g. https://www.google.com/search?q=YOUR+QUERY) instead of typing into a search box. " +
       "If the user's request is ambiguous or missing a key detail, call ask_user to ask ONE concise clarifying question instead of guessing. " +
+      "When the user attaches files, their extracted text is included in the user's message between FILE markers — read it and use it as context for the task. " +
       "Never claim a browser action succeeded unless a tool result confirms it. Available tools: " +
       toolNames +
       ".";
     return custom ? `${custom}\n\n${bridgePrompt}` : bridgePrompt;
+  }
+
+  // Build the user's turn: prepend any attached-file context above the typed
+  // prompt so the model treats the documents as reference material. Extraction
+  // happens here (main process) and stays plain text, so every provider works.
+  private async composeUserTurn(prompt: string, attachments: AttachmentInput[]): Promise<string> {
+    if (attachments.length === 0) return prompt;
+    const extracted = await extractAttachments(attachments);
+    const context = buildAttachmentContext(extracted);
+    if (!context) return prompt;
+    const instruction = prompt || "Review the attached file(s) above and respond accordingly.";
+    return `${context}\n\n${instruction}`;
   }
 
   private historyMessages(history: AssistantChatMessage[]): LlmMessage[] {
