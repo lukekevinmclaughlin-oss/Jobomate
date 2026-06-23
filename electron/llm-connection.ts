@@ -2,9 +2,24 @@ import { app, safeStorage, shell } from "electron";
 import * as childProcess from "child_process";
 import * as crypto from "crypto";
 import * as fs from "fs/promises";
+import * as os from "os";
 import * as path from "path";
 import type { BrowserController } from "./llm-server";
 import { extractAttachments, buildAttachmentContext, type AttachmentInput } from "./attachments";
+import { extraToolDefinitions, dispatchExtraTool, hasExtraTool } from "./tools/dispatch";
+import type { ToolContext } from "./tools/types";
+import { harnessSystemPromptLine } from "./harness/capabilityModel";
+
+/**
+ * Host hooks the harness needs from the surrounding Electron app: the approval
+ * gate for side-effecting tools (git push, commit, …) and a sidecar opener.
+ * Mirrors MAOS's ToolHost. Both are optional; if omitted, the manager
+ * default-allows (so the assistant still works in headless/test contexts).
+ */
+export interface ToolHost {
+  approve: (req: { tool: string; summary: string }) => Promise<boolean>;
+  openSidecar: (viewType: string, payload?: Record<string, unknown>) => void;
+}
 
 export type AppConnectionType =
   | "ApiKey"
@@ -544,7 +559,21 @@ export class LlmConnectionManager {
   private llmEnabled = true;
   private activeRun: AssistantRunControl | null = null;
 
-  constructor(private getController: () => BrowserController) {}
+  constructor(
+    private getController: () => BrowserController,
+    private host?: ToolHost
+  ) {}
+
+  // Build the ToolContext handed to the ported MAOS tool modules (github_*,
+  // describe_harness). Side-effecting tools clear `approve` before acting; if no
+  // host wired an approval gate, default-allow so the loop still functions.
+  private toolContext(): ToolContext {
+    return {
+      cwd: os.homedir(),
+      approve: this.host?.approve ?? (async () => true),
+      openSidecar: this.host?.openSidecar ?? (() => {}),
+    };
+  }
 
   // Turn the connected LLM off/on. Turning it off also interrupts any run in
   // flight, so the user can hard-stop the model at any moment.
@@ -786,7 +815,7 @@ export class LlmConnectionManager {
       ...this.historyMessages(input.history || []),
       { role: "user", content: userContent },
     ];
-    const tools = browserToolDefinitions();
+    const tools = [...browserToolDefinitions(), ...extraToolDefinitions()];
     const toolRuns: AssistantToolRun[] = [];
     // maxToolRounds: 0 (or unset) = unlimited, so the model can carry out long,
     // multi-step browser tasks. A no-progress guard below still prevents runaway
@@ -1226,6 +1255,11 @@ export class LlmConnectionManager {
       case "ask_user":
         return { needsUser: true, question: stringArg(args, "question") || "" };
       default:
+        // Delegate any non-browser tool (github_*, describe_harness) to the
+        // aggregated harness dispatcher before failing.
+        if (hasExtraTool(name)) {
+          return await dispatchExtraTool(name, args, this.toolContext());
+        }
         throw new Error(`Unknown browser tool: ${name}`);
     }
   }
@@ -1276,9 +1310,15 @@ export class LlmConnectionManager {
       "To search the web, navigate directly to the results URL (e.g. https://www.google.com/search?q=YOUR+QUERY) instead of typing into a search box. " +
       "If the user's request is ambiguous or missing a key detail, call ask_user to ask ONE concise clarifying question instead of guessing. " +
       "When the user attaches files, their extracted text is included in the user's message between FILE markers — read it and use it as context for the task. " +
-      "Never claim a browser action succeeded unless a tool result confirms it. Available tools: " +
+      "Never claim a browser action succeeded unless a tool result confirms it. " +
+      "Beyond the browser, you also have a GitHub toolkit (github_auth_status / github_clone / github_status / " +
+      "github_log / github_diff / github_commit / github_branch / github_sync / github_pr / github_checks / " +
+      "github_issue / github_api) for working with git repos and the GitHub platform — read-only ops run freely, " +
+      "side-effecting ops (commit/push/PR writes) ask the user for approval first. Call describe_harness to see " +
+      "exactly which capabilities and tools you have. Available tools: " +
       toolNames +
-      ".";
+      ".\n\n" +
+      harnessSystemPromptLine();
     return custom ? `${custom}\n\n${bridgePrompt}` : bridgePrompt;
   }
 

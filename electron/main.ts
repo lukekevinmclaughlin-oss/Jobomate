@@ -1112,7 +1112,29 @@ electron.app.whenReady().then(() => {
   electron.nativeTheme.themeSource = "light";
   startEngine(ENGINE_TOKEN); // headless Jobomate job-automation backend (localhost:9223), token-gated
   const controller = createBrowserController();
-  llmConnectionManager = new LlmConnectionManager(() => controller);
+  llmConnectionManager = new LlmConnectionManager(() => controller, {
+    // Approval gate for the harness's side-effecting tools (github_commit,
+    // github_sync push/pull, PR/issue writes, non-GET github_api). A native
+    // confirm dialog keeps the user in the loop before anything mutating runs.
+    approve: async (req) => {
+      const opts: electron.MessageBoxOptions = {
+        type: "question",
+        buttons: ["Allow", "Deny"],
+        defaultId: 0,
+        cancelId: 1,
+        title: "Approve action",
+        message: req.tool,
+        detail: req.summary,
+      };
+      const { response } = mainWindow
+        ? await electron.dialog.showMessageBox(mainWindow, opts)
+        : await electron.dialog.showMessageBox(opts);
+      return response === 0;
+    },
+    openSidecar: () => {
+      /* no sidecar surface in this shell; harness tools never call it today */
+    },
+  });
   setupIpcHandlers(controller, llmConnectionManager);
   setupApplicationMenu();
   applyDockIcon();
