@@ -636,10 +636,23 @@ button.primary:hover,
   align-items: center;
   justify-content: center;
   gap: 3px;
-  border: 0;
-  background: transparent;
+  /* Render each pipeline step as a real, obviously-clickable button (orange) rather than a passive
+     progress indicator — the user drives the pipeline by clicking these. */
+  border: 1.5px solid var(--academy-border);
+  border-radius: 10px;
+  background: #fff;
   color: var(--text-secondary);
   cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.jbm__stage:hover:not(:disabled) {
+  border-color: #f97316;
+  background: #fff7ed;
+  color: #ea580c;
+}
+.jbm__stage.is-active {
+  border-color: #f97316;
+  background: #fff7ed;
 }
 .jbm__stage:disabled {
   cursor: default;
@@ -657,8 +670,8 @@ button.primary:hover,
   z-index: 1;
 }
 .jbm__stage.is-active .jbm__stageIcon {
-  background: var(--academy-primary);
-  border-color: var(--academy-primary);
+  background: #f97316;
+  border-color: #f97316;
   color: #fff;
 }
 .jbm__stageLabel {
@@ -683,16 +696,11 @@ button.primary:hover,
 }
 .jbm__stage.is-active .jbm__stageLabel,
 .jbm__stage.is-active .jbm__stageCount {
-  color: var(--academy-primary);
+  color: #ea580c;
 }
+/* The connector line implied a passive stepper; the steps are discrete buttons now, so hide it. */
 .jbm__stageLine {
-  position: absolute;
-  top: 22px;
-  right: -50%;
-  width: 100%;
-  height: 1px;
-  background: #e6ebef;
-  z-index: 0;
+  display: none;
 }
 .jbm__commandBar {
   display: grid;
@@ -711,12 +719,15 @@ button.primary:hover,
   gap: 7px;
   border: 0;
   border-radius: 7px;
-  background: var(--academy-primary);
+  background: #f97316;
   color: #fff;
   font-size: 12.5px;
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
+}
+.jbm__primaryAction:hover:not(:disabled) {
+  background: #ea580c;
 }
 .jbm__primaryAction:disabled {
   opacity: 0.5;
