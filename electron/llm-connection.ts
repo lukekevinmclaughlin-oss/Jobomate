@@ -572,7 +572,63 @@ export class LlmConnectionManager {
       cwd: os.homedir(),
       approve: this.host?.approve ?? (async () => true),
       openSidecar: this.host?.openSidecar ?? (() => {}),
+      llmComplete: async (msgs) => {
+        const config = await this.loadConfig().catch(() => null);
+        if (!config) return "";
+        const res = await this.sendMessagesForConfig(config, msgs as LlmMessage[], [], { maxTokens: 4096 });
+        return res.content || "";
+      },
+      generateImage: (opts) => this.generateImageViaProvider(opts),
+      embed: (texts) => this.embedViaProvider(texts),
     };
+  }
+
+  // Frontier raster image generation via the connected provider's image API.
+  private async generateImageViaProvider(opts: {
+    prompt: string;
+    width?: number;
+    height?: number;
+    style?: string;
+    model?: string;
+  }): Promise<{ data: Buffer; mime: string; ext: string; provider: string; model: string } | null> {
+    const config = await this.loadConfig().catch(() => null);
+    if (!config) return null;
+    const prompt = [opts.prompt, opts.style ? `Style: ${opts.style}.` : ""].filter(Boolean).join(" ").trim();
+    if (!prompt) return null;
+    const plan = resolveImageEndpoint(config);
+    if (!plan) return null;
+    const apiKey = resolveApiKey(config.apiProvider, config.apiKey);
+    if (plan.requiresToken && !apiKey) return null;
+    try {
+      if (plan.adapter === "google-imagen") return await requestGoogleImage(plan, apiKey, prompt, opts);
+      return await requestOpenAiImage(plan, apiKey, prompt, opts);
+    } catch (err) {
+      console.warn("[image] provider generation failed:", (err as Error)?.message ?? err);
+      return null;
+    }
+  }
+
+  // Embed text via the connected provider's embeddings endpoint (OpenAI-compatible).
+  private async embedViaProvider(texts: string[]): Promise<number[][] | null> {
+    if (!texts.length) return [];
+    const config = await this.loadConfig().catch(() => null);
+    if (!config) return null;
+    const plan = resolveEmbeddingEndpoint(config);
+    if (!plan) return null;
+    const apiKey = resolveApiKey(config.apiProvider, config.apiKey);
+    if (plan.requiresToken && !apiKey) return null;
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (apiKey && plan.header) headers[plan.header] = plan.prefix + apiKey;
+      const res = await fetch(plan.endpoint, { method: "POST", headers, body: JSON.stringify({ model: plan.model, input: texts }) });
+      if (!res.ok) return null;
+      const json = (await res.json()) as any;
+      const data = json?.data;
+      if (!Array.isArray(data)) return null;
+      return data.map((d: any) => (Array.isArray(d?.embedding) ? d.embedding : []));
+    } catch {
+      return null;
+    }
   }
 
   // Turn the connected LLM off/on. Turning it off also interrupts any run in
@@ -1609,6 +1665,153 @@ function apiKeyEnvironmentNames(provider: AppApiProvider): string[] {
 function isUsableSecret(value?: string): boolean {
   if (!value || !value.trim()) return false;
   return !/^[.*\u2022]+$/.test(value.trim());
+}
+
+// ---------------------------------------------------------------------------
+// Frontier image generation + embeddings — provider endpoint resolution.
+// ---------------------------------------------------------------------------
+
+interface ImageEndpointPlan {
+  adapter: "openai-images" | "google-imagen";
+  endpoint: string;
+  model: string;
+  header: string;
+  prefix: string;
+  requiresToken: boolean;
+  sizeStyle: "size" | "wh" | "none";
+}
+
+const IMAGE_PROVIDER_SPECS: Partial<
+  Record<AppApiProvider, { base: string; model: string; sizeStyle: "size" | "wh" | "none" }>
+> = {
+  OpenAI: { base: "https://api.openai.com/v1", model: "gpt-image-1", sizeStyle: "size" },
+  XAI: { base: "https://api.x.ai/v1", model: "grok-2-image", sizeStyle: "none" },
+  Together: { base: "https://api.together.xyz/v1", model: "black-forest-labs/FLUX.1-schnell-Free", sizeStyle: "wh" },
+  Fireworks: { base: "https://api.fireworks.ai/inference/v1", model: "accounts/fireworks/models/flux-1-schnell-fp8", sizeStyle: "wh" },
+};
+
+function resolveImageEndpoint(config: LlmConnectionConfig): ImageEndpointPlan | null {
+  if (config.apiProvider === "GoogleAI") {
+    return {
+      adapter: "google-imagen",
+      endpoint: "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict",
+      model: "imagen-3.0-generate-002",
+      header: "x-goog-api-key",
+      prefix: "",
+      requiresToken: true,
+      sizeStyle: "none",
+    };
+  }
+  const custom = config.customEndpoint?.trim();
+  if (custom && (config.connectionType === "LocalServer" || config.connectionType === "OAuth" || config.apiProvider === "Custom")) {
+    const base = custom.replace(/\/chat\/completions\/?$/i, "").replace(/\/$/, "");
+    return { adapter: "openai-images", endpoint: `${base}/images/generations`, model: resolvedModel(config), header: "Authorization", prefix: "Bearer ", requiresToken: false, sizeStyle: "size" };
+  }
+  const spec = IMAGE_PROVIDER_SPECS[config.apiProvider];
+  if (!spec) return null;
+  const info = PROVIDER_INFO[config.apiProvider];
+  const base = spec.base || (custom ? custom.replace(/\/chat\/completions\/?$/i, "").replace(/\/$/, "") : "");
+  if (!base) return null;
+  return { adapter: "openai-images", endpoint: `${base}/images/generations`, model: spec.model, header: info?.header || "Authorization", prefix: info?.prefix ?? "Bearer ", requiresToken: info?.requiresToken ?? true, sizeStyle: spec.sizeStyle };
+}
+
+const EMBEDDING_PROVIDER_SPECS: Partial<Record<AppApiProvider, { base: string; model: string }>> = {
+  OpenAI: { base: "https://api.openai.com/v1", model: "text-embedding-3-small" },
+  Together: { base: "https://api.together.xyz/v1", model: "BAAI/bge-base-en-v1.5" },
+  Mistral: { base: "https://api.mistral.ai/v1", model: "mistral-embed" },
+  DeepSeek: { base: "https://api.deepseek.com/v1", model: "deepseek-embedding" },
+};
+
+function resolveEmbeddingEndpoint(
+  config: LlmConnectionConfig
+): { endpoint: string; model: string; header: string; prefix: string; requiresToken: boolean } | null {
+  const custom = config.customEndpoint?.trim();
+  if (custom && (config.connectionType === "LocalServer" || config.connectionType === "OAuth" || config.apiProvider === "Custom")) {
+    const base = custom.replace(/\/chat\/completions\/?$/i, "").replace(/\/$/, "");
+    return { endpoint: `${base}/embeddings`, model: "text-embedding-3-small", header: "Authorization", prefix: "Bearer ", requiresToken: false };
+  }
+  const spec = EMBEDDING_PROVIDER_SPECS[config.apiProvider];
+  if (!spec) return null;
+  const info = PROVIDER_INFO[config.apiProvider];
+  return { endpoint: `${spec.base}/embeddings`, model: spec.model, header: info?.header || "Authorization", prefix: info?.prefix ?? "Bearer ", requiresToken: info?.requiresToken ?? true };
+}
+
+function openAiSizeString(width?: number, height?: number): string {
+  const w = Number(width) || 1024;
+  const h = Number(height) || 1024;
+  if (w > h * 1.15) return "1536x1024";
+  if (h > w * 1.15) return "1024x1536";
+  return "1024x1024";
+}
+
+function clampDimension(value: number | undefined, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(256, Math.min(1440, Math.round(n / 64) * 64));
+}
+
+async function decodeImagePayload(
+  json: any,
+  provider: string,
+  model: string
+): Promise<{ data: Buffer; mime: string; ext: string; provider: string; model: string } | null> {
+  const item = json?.data?.[0];
+  if (item?.b64_json) return { data: Buffer.from(String(item.b64_json), "base64"), mime: "image/png", ext: "png", provider, model };
+  if (item?.url) {
+    const res = await fetch(String(item.url));
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const mime = res.headers.get("content-type") || "image/png";
+    const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
+    return { data: buf, mime, ext, provider, model };
+  }
+  return null;
+}
+
+async function requestOpenAiImage(
+  plan: ImageEndpointPlan,
+  apiKey: string,
+  prompt: string,
+  opts: { width?: number; height?: number; model?: string }
+): Promise<{ data: Buffer; mime: string; ext: string; provider: string; model: string } | null> {
+  const model = opts.model?.trim() || plan.model;
+  const body: Record<string, unknown> = { model, prompt, n: 1 };
+  if (plan.sizeStyle === "size") body.size = openAiSizeString(opts.width, opts.height);
+  else if (plan.sizeStyle === "wh") {
+    body.width = clampDimension(opts.width, 1024);
+    body.height = clampDimension(opts.height, 1024);
+    body.steps = 4;
+  }
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey && plan.header) headers[plan.header] = plan.prefix + apiKey;
+  const res = await fetch(plan.endpoint, { method: "POST", headers, body: JSON.stringify(body) });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${detail.slice(0, 200)}`);
+  }
+  return decodeImagePayload(await res.json(), "image-api", model);
+}
+
+async function requestGoogleImage(
+  plan: ImageEndpointPlan,
+  apiKey: string,
+  prompt: string,
+  opts: { width?: number; height?: number; model?: string }
+): Promise<{ data: Buffer; mime: string; ext: string; provider: string; model: string } | null> {
+  const model = opts.model?.trim() || plan.model;
+  const endpoint = plan.endpoint.replace(plan.model, model);
+  const aspect = Number(opts.width) > Number(opts.height) * 1.15 ? "16:9" : Number(opts.height) > Number(opts.width) * 1.15 ? "9:16" : "1:1";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers[plan.header] = apiKey;
+  const res = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ instances: [{ prompt }], parameters: { sampleCount: 1, aspectRatio: aspect } }) });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${detail.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as any;
+  const b64 = json?.predictions?.[0]?.bytesBase64Encoded;
+  if (!b64) return null;
+  return { data: Buffer.from(String(b64), "base64"), mime: "image/png", ext: "png", provider: "GoogleAI", model };
 }
 
 function chatCompletionsEndpoint(value: string): string {

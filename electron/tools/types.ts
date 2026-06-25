@@ -26,6 +26,24 @@ export interface ToolContext {
   llmComplete?: (messages: { role: string; content: string }[]) => Promise<string>;
   /** The active "Faster↔Smarter" effort level (drives refinement rounds). */
   reasoningEffort?: string;
+  /**
+   * Generate a raster image via the connected provider's image API (frontier
+   * diffusion model). Returns encoded bytes + mime/ext, or null when no
+   * image-capable provider/key is configured. Injected by the host so secrets
+   * never leave the main process.
+   */
+  generateImage?: (opts: {
+    prompt: string;
+    width?: number;
+    height?: number;
+    style?: string;
+    model?: string;
+  }) => Promise<{ data: Buffer; mime: string; ext: string; provider: string; model: string } | null>;
+  /**
+   * Embed strings into vector space via the connected provider's embeddings API,
+   * or null when unavailable (callers fall back to a local lexical embedding).
+   */
+  embed?: (texts: string[]) => Promise<number[][] | null>;
 }
 
 export type ToolHandler = (

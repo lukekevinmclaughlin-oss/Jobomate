@@ -4,9 +4,41 @@
 
 import { githubToolsModule } from "./githubTools";
 import { harnessToolsModule } from "./harnessTools";
+import { artifactWriterModule } from "./artifactWriter";
+import { imageGeneratorModule } from "./imageGenerator";
+import { webToolsModule } from "./webTools";
+import { execToolsModule } from "./execTools";
+import { documentRenderModule } from "./documentRenderTools";
+import { researchToolsModule } from "./researchTools";
+import { memoryToolsModule } from "./memoryTools";
+import { kernelToolsModule } from "./kernelTools";
+import { desktopToolsModule } from "./desktopTools";
+import { mediaToolsModule } from "./mediaTools";
+import { subagentToolsModule } from "./subagentTools";
+import { scheduleToolsModule } from "./scheduleTools";
+import { verifyToolsModule } from "./verifyTools";
+import { connectorToolsModule } from "./connectorTools";
 import type { ToolContext, LlmToolDefinition, ToolModule } from "./types";
 
-const MODULES: ToolModule[] = [githubToolsModule, harnessToolsModule];
+const MODULES: ToolModule[] = [
+  githubToolsModule,
+  harnessToolsModule,
+  // Frontier harness layers (Tiers 1–3).
+  webToolsModule,
+  execToolsModule,
+  artifactWriterModule,
+  imageGeneratorModule,
+  documentRenderModule,
+  researchToolsModule,
+  memoryToolsModule,
+  kernelToolsModule,
+  desktopToolsModule,
+  mediaToolsModule,
+  subagentToolsModule,
+  scheduleToolsModule,
+  verifyToolsModule,
+  connectorToolsModule,
+];
 
 const HANDLERS: Record<
   string,

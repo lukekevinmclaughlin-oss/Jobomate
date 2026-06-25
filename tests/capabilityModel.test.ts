@@ -31,7 +31,7 @@ const realToolNames = new Set<string>([
 
 describe("capability model — shape", () => {
   it("encodes the full canonical matrix with unique ids", () => {
-    expect(CAPABILITIES.length).toBe(18);
+    expect(CAPABILITIES.length).toBe(24);
     const ids = CAPABILITIES.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -89,10 +89,15 @@ describe("capability model — grounded in real code", () => {
     expect(getCapability("browser-use")?.status).toBe("implemented");
     expect(getCapability("git-workflows")?.status).toBe("implemented");
     expect(getCapability("safety-controls")?.status).toBe("implemented");
-    // This shell ships no file/exec/document tools, so those rows must stay planned.
-    for (const id of ["file-editing", "software-execution", "document-creation"]) {
+    // This shell still ships no in-harness file editor, so that row stays planned.
+    for (const id of ["file-editing"]) {
       expect(getCapability(id)?.status).toBe("planned");
       expect(getCapability(id)?.tools.length).toBe(0);
+    }
+    // These were planned in the base shell but are now backed by real tools.
+    for (const id of ["software-execution", "document-creation"]) {
+      expect(getCapability(id)?.status).toBe("implemented");
+      expect(getCapability(id)?.tools.length).toBeGreaterThan(0);
     }
   });
 });
