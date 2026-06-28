@@ -1335,7 +1335,25 @@ export class LlmConnectionManager {
       payload.tool_choice = options.connectionTest || options.requireToolUse ? "required" : "auto";
     }
 
+    // OpenAI o-series / gpt-5 reasoning models require max_completion_tokens and reject
+    // a custom temperature. Gated to those model ids; a param-rejection retry below
+    // reverts to the classic shape for OpenAI-compatible proxies that don't implement them.
+    const isOpenAiReasoning = /\b(o[1-9]|gpt-5)/i.test(model);
+    if (isOpenAiReasoning) {
+      payload.max_completion_tokens = payload.max_tokens;
+      delete payload.max_tokens;
+      delete payload.temperature;
+    }
+
     let { ok, status, body } = await postJson(endpoint, headers, payload, options.signal);
+
+    // Proxy doesn't understand the reasoning-model params → revert and retry once.
+    if (!ok && isOpenAiReasoning && isReasoningParamRejected(status, body)) {
+      payload.max_tokens = payload.max_completion_tokens;
+      delete payload.max_completion_tokens;
+      if (!options.connectionTest) payload.temperature = 0;
+      ({ ok, status, body } = await postJson(endpoint, headers, payload, options.signal));
+    }
 
     // "Thinking"/reasoning models (e.g. DeepSeek thinking, some o-series) reject
     // a forced or even explicit tool_choice. Degrade gracefully while keeping the
@@ -2652,6 +2670,20 @@ function isToolOrTemplateLimitation(status: number, body: string): boolean {
     || lower.includes("system role")
     || lower.includes("only user and assistant roles")
     || lower.includes("jinja");
+}
+
+/** True when a server rejects the OpenAI reasoning-model params (max_completion_tokens /
+ *  no-temperature) — used to revert to the classic chat shape for OpenAI-compatible
+ *  proxies that don't implement them. */
+function isReasoningParamRejected(status: number, body: string): boolean {
+  if (status !== 400 && status !== 404 && status !== 422) return false;
+  const lower = body.toLowerCase();
+  return lower.includes("reasoning_effort")
+    || lower.includes("max_completion_tokens")
+    || lower.includes("unsupported parameter")
+    || lower.includes("unknown_parameter")
+    || lower.includes("unrecognized")
+    || (lower.includes("temperature") && lower.includes("unsupported"));
 }
 
 function runShell(command: string, stdin: string | undefined, timeoutSeconds: number): Promise<string> {
