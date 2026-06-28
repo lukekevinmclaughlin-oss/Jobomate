@@ -996,8 +996,26 @@ function setupIpcHandlers(
   electron.ipcMain.handle("llmConnection:saveConfig", (_event, config) =>
     llmConnection.saveConfig(config)
   );
+  electron.ipcMain.handle("llmConnection:connect", (_event, config) =>
+    llmConnection.connect(config)
+  );
+  electron.ipcMain.handle("llmConnection:disconnect", (_event, type) =>
+    llmConnection.disconnect(type)
+  );
   electron.ipcMain.handle("llmConnection:test", (_event, config) =>
     llmConnection.testConnection(config)
+  );
+  electron.ipcMain.handle("llmConnection:probeApiKey", (_event, input) =>
+    llmConnection.probeApiKey(input)
+  );
+  electron.ipcMain.handle("llmConnection:discoverLocal", () =>
+    llmConnection.discoverLocalRuntimes()
+  );
+  electron.ipcMain.handle("llmConnection:listModels", (_event, input) =>
+    llmConnection.listModelsForEndpoint(input)
+  );
+  electron.ipcMain.handle("llmConnection:testCli", (_event, input) =>
+    llmConnection.testCliCommand(input)
   );
   electron.ipcMain.handle("llmConnection:providerDefaults", (_event, provider) =>
     llmConnection.providerDefaults(provider)
@@ -1084,6 +1102,32 @@ function setupIpcHandlers(
       }
     }
   );
+
+  // Folder picker (setup wizard / working-dir style flows). Returns { canceled, path }.
+  electron.ipcMain.handle("dialog:openFolder", async () => {
+    const result = mainWindow
+      ? await electron.dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] })
+      : await electron.dialog.showOpenDialog({ properties: ["openDirectory"] });
+    return {
+      canceled: result.canceled,
+      path: result.filePaths && result.filePaths[0] ? result.filePaths[0] : null,
+    };
+  });
+
+  // GGUF model file picker for the Local AI wizard step. Returns { canceled, path }.
+  electron.ipcMain.handle("dialog:openFile", async () => {
+    const opts: Electron.OpenDialogOptions = {
+      properties: ["openFile"],
+      filters: [{ name: "GGUF models", extensions: ["gguf"] }],
+    };
+    const result = mainWindow
+      ? await electron.dialog.showOpenDialog(mainWindow, opts)
+      : await electron.dialog.showOpenDialog(opts);
+    return {
+      canceled: result.canceled,
+      path: result.filePaths && result.filePaths[0] ? result.filePaths[0] : null,
+    };
+  });
 
   // Native file picker for attaching a CV (PDF/text/Word). Returns the chosen path, or null.
   electron.ipcMain.handle("dialog:open-cv", async () => {

@@ -131,7 +131,7 @@ export interface LlmConnectionConfig {
   apiKey: string;
   customEndpoint: string;
   model: string;
-  reasoningEffort: "Low" | "Medium" | "High";
+  reasoningEffort: "Low" | "Medium" | "High" | "Extra" | "Max" | "ExtraMax";
   fastMode: boolean;
   systemPrompt: string;
   localServerUrl: string;
@@ -164,6 +164,39 @@ export interface LlmConnectionConfigForRenderer extends LlmConnectionConfig {
   hasApiKey: boolean;
   hasOAuthToken: boolean;
   secretMask: string;
+}
+
+/** A model entry returned by API-key autodetection. */
+export interface DetectedModel {
+  id: string;
+  label?: string;
+  ownedBy?: string;
+  supportsReasoning?: boolean;
+  supportsTools?: boolean;
+  supportsVision?: boolean;
+  contextWindow?: number;
+  tier?: "fast" | "balanced" | "flagship";
+}
+
+/** Aggregate capabilities for the recommended model, used to auto-fill settings. */
+export interface ModelCapabilities {
+  supportsReasoning: boolean;
+  reasoningKind: "effort" | "extended" | "none";
+  supportsTools: boolean;
+  supportsVision: boolean;
+  defaultReasoningEffort?: "Low" | "Medium" | "High";
+}
+
+/** Result of probing an API key against candidate providers. */
+export interface ApiKeyProbeResult {
+  ok: boolean;
+  provider?: AppApiProvider;
+  endpoint: string;
+  modelsEndpoint?: string;
+  models: DetectedModel[];
+  recommendedModel?: string;
+  capabilities?: ModelCapabilities;
+  message: string;
 }
 
 interface StoredLlmConnectionConfig extends Omit<
@@ -551,6 +584,45 @@ const PROVIDER_INFO: Record<AppApiProvider, ProviderInfo> = {
   },
 };
 
+// Known localhost LLM runtimes the setup wizard auto-probes (loopback only).
+interface LocalRuntimeProbe {
+  runtime: string;
+  baseUrl: string;
+  modelsPath: string;
+  nativePath?: string; // e.g. Ollama's /api/tags
+}
+const LOCAL_RUNTIME_PROBES: LocalRuntimeProbe[] = [
+  { runtime: "Ollama", baseUrl: "http://127.0.0.1:11434", modelsPath: "/v1/models", nativePath: "/api/tags" },
+  { runtime: "LM Studio", baseUrl: "http://127.0.0.1:1234", modelsPath: "/v1/models" },
+  { runtime: "llama.cpp", baseUrl: "http://127.0.0.1:8080", modelsPath: "/v1/models" },
+  { runtime: "KoboldCpp", baseUrl: "http://127.0.0.1:5001", modelsPath: "/v1/models" },
+  { runtime: "Text Generation WebUI", baseUrl: "http://127.0.0.1:5000", modelsPath: "/v1/models" },
+  { runtime: "LiteLLM", baseUrl: "http://127.0.0.1:4000", modelsPath: "/v1/models" },
+  { runtime: "Docker Model Runner", baseUrl: "http://127.0.0.1:12434", modelsPath: "/v1/models" },
+];
+
+export interface LocalRuntimeResult {
+  runtime: string;
+  baseUrl: string;
+  chatUrl: string;
+  models: DetectedModel[];
+  ok: boolean;
+}
+
+async function fetchJsonWithTimeout(url: string, ms: number): Promise<unknown | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export class LlmConnectionManager {
   private pendingOAuth: Map<string, PendingOAuthFlow> = new Map();
   // User-facing run controls: a power switch for the connection plus stop/
@@ -758,6 +830,159 @@ export class LlmConnectionManager {
       return { ok: true, message: content };
     } catch (error) {
       return { ok: false, message: this.errorMessage(error) };
+    }
+  }
+
+  // Probe a raw API key against candidate providers: detect the provider from the
+  // key format, then list the account's available models from the provider's
+  // /models endpoint so the settings UI can auto-fill provider, endpoint, model,
+  // and reasoning capabilities. Never throws; returns a result with .ok + message.
+  async probeApiKey(input: {
+    apiKey: string;
+    provider?: AppApiProvider;
+    endpoint?: string;
+  }): Promise<ApiKeyProbeResult> {
+    const key = (input.apiKey || "").trim();
+    if (!isUsableSecret(key)) {
+      return { ok: false, endpoint: "", models: [], message: "Enter an API key to detect." };
+    }
+
+    // Candidate providers in priority order: an explicit hint goes first, then
+    // every provider whose key-format signature matches the key. Ambiguous keys
+    // (e.g. sk-... could be OpenAI or DeepSeek) end up probing several, and we
+    // keep the first that returns a real model list.
+    const candidates = detectProvidersForKey(key, input.provider);
+    if (candidates.length === 0) {
+      return {
+        ok: false,
+        endpoint: "",
+        models: [],
+        message:
+          "Could not guess a provider from this key. Pick a provider and use Auto-detect, or set the endpoint manually.",
+      };
+    }
+
+    const errors: string[] = [];
+    for (const provider of candidates) {
+      const info = PROVIDER_INFO[provider];
+      if (!info || !info.requiresToken) continue;
+      const endpoint = input.endpoint?.trim() || info.url;
+      const modelsEndpoint = resolveModelsEndpoint(provider, endpoint);
+      if (!modelsEndpoint) continue;
+      try {
+        const models = await fetchModelList(provider, modelsEndpoint, key);
+        if (models.length === 0) {
+          errors.push(`${provider}: no models returned`);
+          continue;
+        }
+        const recommended = recommendModel(provider, models);
+        const capabilities = inferCapabilities(provider, recommended);
+        return {
+          ok: true,
+          provider,
+          endpoint: input.endpoint?.trim() ? endpoint : info.url,
+          modelsEndpoint,
+          models,
+          recommendedModel: recommended,
+          capabilities,
+          message: `Detected ${provider}: ${models.length} model(s) available.`,
+        };
+      } catch (error) {
+        errors.push(`${provider}: ${(error as Error)?.message ?? error}`);
+      }
+    }
+    return {
+      ok: false,
+      endpoint: "",
+      models: [],
+      message:
+        "Detection failed for all candidate providers. " +
+        errors.join(" | ") +
+        " — check the key, provider, and any custom endpoint.",
+    };
+  }
+
+  /** Probe known localhost ports for running LLM runtimes (loopback-only, fast,
+   *  concurrent). Powers the wizard's "we found a local model" auto-detection. */
+  async discoverLocalRuntimes(): Promise<LocalRuntimeResult[]> {
+    const probeOne = async (p: LocalRuntimeProbe): Promise<LocalRuntimeResult> => {
+      const chatUrl = `${p.baseUrl}/v1/chat/completions`;
+      let models: DetectedModel[] = [];
+      let responded = false;
+      if (p.nativePath) {
+        const native = (await fetchJsonWithTimeout(`${p.baseUrl}${p.nativePath}`, 800)) as
+          | { models?: Array<{ name?: string; model?: string }> }
+          | null;
+        if (native) {
+          responded = true;
+          if (Array.isArray(native.models)) {
+            models = native.models
+              .map((m) => String(m?.name || m?.model || "").trim())
+              .filter(Boolean)
+              .map((id) => ({ id, ...modelCapabilityEntry("LocalAIEndpoint", id) }));
+          }
+        }
+      }
+      if (models.length === 0) {
+        const json = (await fetchJsonWithTimeout(`${p.baseUrl}${p.modelsPath}`, 800)) as
+          | { data?: Array<{ id?: string }> }
+          | null;
+        if (json) {
+          responded = true;
+          if (Array.isArray(json.data)) {
+            models = json.data
+              .map((m) => String(m?.id || "").trim())
+              .filter(Boolean)
+              .map((id) => ({ id, ...modelCapabilityEntry("LocalAIEndpoint", id) }));
+          }
+        }
+      }
+      return { runtime: p.runtime, baseUrl: p.baseUrl, chatUrl, models, ok: responded };
+    };
+
+    const settled = await Promise.allSettled(LOCAL_RUNTIME_PROBES.map(probeOne));
+    return settled
+      .map((r) => (r.status === "fulfilled" ? r.value : null))
+      .filter((v): v is LocalRuntimeResult => Boolean(v && v.ok));
+  }
+
+  /** List the models a given OpenAI-compatible endpoint exposes (for local-server
+   *  / local-AI model dropdowns). Reuses resolveModelsEndpoint + fetchModelList. */
+  async listModelsForEndpoint(input: { url: string; apiKey?: string }): Promise<{
+    ok: boolean;
+    models: DetectedModel[];
+    message: string;
+  }> {
+    const url = (input.url || "").trim();
+    if (!url) return { ok: false, models: [], message: "Enter an endpoint URL first." };
+    const endpoint = resolveModelsEndpoint("LocalAIEndpoint", url);
+    if (!endpoint) return { ok: false, models: [], message: "Could not resolve a models endpoint from that URL." };
+    try {
+      const models = await fetchModelList("LocalAIEndpoint", endpoint, input.apiKey || "");
+      return {
+        ok: models.length > 0,
+        models,
+        message: models.length ? `${models.length} model(s) found.` : "No models returned by this endpoint.",
+      };
+    } catch (e) {
+      return { ok: false, models: [], message: `Could not list models: ${(e as Error)?.message ?? e}` };
+    }
+  }
+
+  /** Run a CLI/Terminal command template once with a sample prompt so the user
+   *  can verify it works before saving. */
+  async testCliCommand(input: { command: string; timeout?: number }): Promise<{
+    ok: boolean;
+    output: string;
+    message: string;
+  }> {
+    const command = (input.command || "").trim();
+    if (!command) return { ok: false, output: "", message: "Enter a command first." };
+    try {
+      const res = await this.sendCli(command, "Reply with exactly: OK", Math.max(5, input.timeout || 30));
+      return { ok: true, output: (res.content || "").slice(0, 4000), message: "Command ran successfully." };
+    } catch (e) {
+      return { ok: false, output: "", message: `Command failed: ${(e as Error)?.message ?? e}` };
     }
   }
 
@@ -1665,6 +1890,219 @@ function apiKeyEnvironmentNames(provider: AppApiProvider): string[] {
 function isUsableSecret(value?: string): boolean {
   if (!value || !value.trim()) return false;
   return !/^[.*\u2022]+$/.test(value.trim());
+}
+
+// ---------------------------------------------------------------------------
+// API-key autodetection — guess the provider from the key shape, then list the
+// account's models and infer reasoning/tool/vision capabilities per model.
+// ---------------------------------------------------------------------------
+
+/** Key-format signatures mapped to the provider(s) they imply. Order matters:
+ *  more specific prefixes (sk-ant-, gsk_, ...) are tried before generic ones
+ *  (sk-, bare tokens) so ambiguous keys probe the right hosts first. */
+const KEY_FORMAT_PROVIDERS: Array<{ provider: AppApiProvider; test: RegExp }> = [
+  { provider: "Anthropic", test: /^sk-ant-/i },
+  { provider: "Groq", test: /^gsk_/i },
+  { provider: "OpenRouter", test: /^sk-or-/i },
+  { provider: "XAI", test: /^xai-/i },
+  { provider: "GoogleAI", test: /^AIza[A-Za-z0-9_-]{35}$/ },
+  // Zhipu / Z.ai JWT-style "id.secret" key (32 hex . 16+ alnum).
+  { provider: "ZAI", test: /^[0-9a-f]{32}\.[A-Za-z0-9]{12,}$/i },
+  { provider: "DeepSeek", test: /^sk-[a-f0-9]{32}$/i },
+  { provider: "Mistral", test: /^[A-Za-z0-9]{32,40}$/ },
+  // Generic OpenAI-style keys come last so provider-specific matches win.
+  { provider: "OpenAI", test: /^sk-/i },
+];
+
+/** Candidate providers for a key, hint-first. Returns [] if nothing looks plausible. */
+export function detectProvidersForKey(key: string, hint?: AppApiProvider): AppApiProvider[] {
+  const out: AppApiProvider[] = [];
+  const seen = new Set<AppApiProvider>();
+  const push = (p: AppApiProvider) => {
+    if (!seen.has(p)) { seen.add(p); out.push(p); }
+  };
+  // An explicit hint always wins, but we still append format matches as fallbacks
+  // so a wrong hint (e.g. "OpenAI" for a DeepSeek key) can recover.
+  if (hint && PROVIDER_INFO[hint]?.requiresToken) push(hint);
+  for (const { provider, test } of KEY_FORMAT_PROVIDERS) {
+    if (test.test(key.trim())) push(provider);
+  }
+  return out;
+}
+
+/** Resolve a provider's GET /models endpoint from its chat URL (or a custom one).
+ *  Returns "" when the provider has no usable list endpoint (local/runtime). */
+export function resolveModelsEndpoint(provider: AppApiProvider, chatUrl: string): string {
+  const base = (chatUrl || PROVIDER_INFO[provider]?.url || "")
+    .replace(/\/chat\/completions\/?$/i, "")
+    .replace(/\/$/, "");
+  if (!base) return "";
+  switch (provider) {
+    case "GoogleAI":
+      // Google lists models under /v1beta/models with the key as a query param.
+      return "https://generativelanguage.googleapis.com/v1beta/models";
+    case "Anthropic":
+      return "https://api.anthropic.com/v1/models";
+    default:
+      return `${base}/models`;
+  }
+}
+
+/** Fetch + normalize a provider's model list into DetectedModel[]. Throws on
+ *  non-200 so the caller can fall through to the next candidate. */
+export async function fetchModelList(
+  provider: AppApiProvider,
+  modelsEndpoint: string,
+  apiKey: string
+): Promise<DetectedModel[]> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  let url = modelsEndpoint;
+  if (provider === "GoogleAI") {
+    url = `${modelsEndpoint}?key=${encodeURIComponent(apiKey)}&pageSize=200`;
+  } else if (provider === "Anthropic") {
+    headers["x-api-key"] = apiKey;
+    headers["anthropic-version"] = "2023-06-01";
+  } else {
+    const info = PROVIDER_INFO[provider];
+    headers[info.header] = info.prefix + apiKey;
+  }
+
+  const res = await fetch(url, { method: "GET", headers });
+  const body = await res.text();
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${trimForDisplay(body, 200)}`);
+  }
+
+  let json: any;
+  try { json = JSON.parse(body); } catch { return []; }
+
+  // OpenAI-compatible: { data: [{ id, owned_by }] }
+  if (Array.isArray(json?.data)) {
+    return (json.data as any[])
+      .map((m) => String(m?.id || "").trim())
+      .filter(Boolean)
+      .map((id) => {
+        const caps = modelCapabilityEntry(provider, id);
+        return { id, ...caps };
+      });
+  }
+  // Google: { models: [{ name: "models/gemini-...", displayName, supportedGenerationMethods }] }
+  if (Array.isArray(json?.models) && provider === "GoogleAI") {
+    return (json.models as any[])
+      .map((m) => {
+        const raw = String(m?.name || "");
+        const id = raw.replace(/^models\//, "").trim();
+        if (!id) return null;
+        const methods: string[] = Array.isArray(m?.supportedGenerationMethods)
+          ? m.supportedGenerationMethods.map(String)
+          : [];
+        const caps = modelCapabilityEntry(provider, id);
+        return {
+          id,
+          label: typeof m?.displayName === "string" ? m.displayName : undefined,
+          supportsTools: methods.includes("functionCalling") || caps.supportsTools,
+          supportsVision: caps.supportsVision,
+          supportsReasoning: caps.supportsReasoning,
+          tier: caps.tier,
+        } as DetectedModel;
+      })
+      .filter((m): m is DetectedModel => m !== null);
+  }
+  return [];
+}
+
+/** Static knowledge base of model capabilities, keyed by (provider, id pattern).
+ *  APIs don't reliably expose reasoning/tool/vision support, so we infer it from
+ *  well-known model naming. Falls back to provider-wide defaults. */
+const MODEL_CAPABILITY_RULES: Array<{
+  providers?: AppApiProvider[];
+  match: RegExp;
+  caps: Partial<DetectedModel & { defaultReasoningEffort: "Low" | "Medium" | "High" }>;
+}> = [
+  // OpenAI reasoning models accept a reasoning effort knob.
+  { match: /\b(o\d|o\d+-|gpt-5|openai-o\d)/i, caps: { supportsReasoning: true, tier: "flagship", defaultReasoningEffort: "Medium" } },
+  { match: /gpt-5-mini|gpt-4o-mini|gpt-4\.1-mini/i, caps: { supportsTools: true, supportsVision: true, tier: "fast" } },
+  { match: /gpt-4o|gpt-4\.1|gpt-4-turbo/i, caps: { supportsTools: true, supportsVision: true, tier: "balanced" } },
+  // Anthropic Claude 3.5/4/Opus/Sonnet: tool + vision, extended thinking on 3.7+/4.
+  { match: /claude-?(3\.7|3-7|4|opus|sonnet)/i, caps: { supportsTools: true, supportsVision: true, supportsReasoning: true, tier: "flagship", defaultReasoningEffort: "Medium" } },
+  { match: /claude.*haiku/i, caps: { supportsTools: true, supportsVision: true, tier: "fast" } },
+  // GLM 4.5/4.6/5.x (Z.ai / Zhipu): thinking toggle on .5+; tools+vision across the line.
+  { match: /glm-?(5|4\.[6789]|4-6)/i, caps: { supportsReasoning: true, supportsTools: true, supportsVision: true, tier: "flagship", defaultReasoningEffort: "High" } },
+  { match: /glm-?4\.5|glm-4-air/i, caps: { supportsReasoning: true, supportsTools: true, supportsVision: true, tier: "balanced", defaultReasoningEffort: "Medium" } },
+  { match: /glm-(flash|lite)/i, caps: { supportsTools: true, tier: "fast" } },
+  // Gemini 2.x/Pro/Flash: function calling + multimodal.
+  { match: /gemini.*(pro|2\.5|2-5)/i, caps: { supportsReasoning: true, supportsTools: true, supportsVision: true, tier: "flagship", defaultReasoningEffort: "Medium" } },
+  { match: /gemini.*flash/i, caps: { supportsTools: true, supportsVision: true, tier: "fast" } },
+  // DeepSeek reasoning models.
+  { match: /deepseek.*(reason|r1)/i, caps: { supportsReasoning: true, tier: "flagship", defaultReasoningEffort: "Medium" } },
+  { match: /deepseek/i, caps: { supportsTools: true, tier: "balanced" } },
+  // Grok.
+  { match: /grok-?[3-9]/i, caps: { supportsTools: true, supportsVision: true, tier: "balanced" } },
+  // Llama / Qwen / Mistral families generally do tools.
+  { match: /(llama|qwen|mistral-large|codestral)/i, caps: { supportsTools: true, tier: "balanced" } },
+];
+
+export function modelCapabilityEntry(
+  provider: AppApiProvider,
+  modelId: string
+): { supportsReasoning?: boolean; supportsTools?: boolean; supportsVision?: boolean; tier?: DetectedModel["tier"] } {
+  const lower = modelId.toLowerCase();
+  // First-wins per property: the first rule (in priority order) that sets a
+  // given attribute owns it. This lets a specific "mini = fast" rule outrank a
+  // later generic "gpt-4o = balanced" rule without fighting over tier.
+  const merged: Partial<DetectedModel> = { supportsTools: true };
+  for (const rule of MODEL_CAPABILITY_RULES) {
+    if (rule.providers && !rule.providers.includes(provider)) continue;
+    if (!rule.match.test(lower)) continue;
+    for (const [key, value] of Object.entries(rule.caps)) {
+      if (merged[key as keyof DetectedModel] === undefined) {
+        (merged as Record<string, unknown>)[key] = value;
+      }
+    }
+  }
+  return merged;
+}
+
+/** Pick the best default model from a detected list: flagship > balanced > fast,
+ *  preferring the provider's curated default when present. */
+export function recommendModel(provider: AppApiProvider, models: DetectedModel[]): string {
+  const curated = PROVIDER_INFO[provider]?.model;
+  const ids = new Set(models.map((m) => m.id));
+  if (curated && ids.has(curated)) return curated;
+  const tierRank: Record<DetectedModel["tier"] & string, number> = { flagship: 0, balanced: 1, fast: 2 };
+  const sorted = [...models].sort(
+    (a, b) => (tierRank[a.tier || "balanced"] ?? 1) - (tierRank[b.tier || "balanced"] ?? 1) || a.id.localeCompare(b.id)
+  );
+  return sorted[0]?.id || models[0]?.id || "";
+}
+
+/** Roll up a model's capabilities into the shape the settings UI auto-fills from. */
+export function inferCapabilities(provider: AppApiProvider, modelId: string): ModelCapabilities {
+  const entry = modelCapabilityEntry(provider, modelId);
+  const supportsReasoning = Boolean(entry.supportsReasoning);
+  // Anthropic uses budget-tokens extended thinking; most others use an effort dial.
+  const reasoningKind: ModelCapabilities["reasoningKind"] = supportsReasoning
+    ? provider === "Anthropic"
+      ? "extended"
+      : "effort"
+    : "none";
+  // Surface the rule's preferred effort, falling back to Medium when reasoning is on.
+  let defaultReasoningEffort: "Low" | "Medium" | "High" | undefined;
+  for (const rule of MODEL_CAPABILITY_RULES) {
+    if (rule.providers && !rule.providers.includes(provider)) continue;
+    if (rule.match.test(modelId.toLowerCase()) && rule.caps.defaultReasoningEffort) {
+      defaultReasoningEffort = rule.caps.defaultReasoningEffort;
+      break;
+    }
+  }
+  if (!defaultReasoningEffort && supportsReasoning) defaultReasoningEffort = "Medium";
+  return {
+    supportsReasoning,
+    reasoningKind,
+    supportsTools: entry.supportsTools ?? true,
+    supportsVision: entry.supportsVision ?? false,
+    defaultReasoningEffort,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -64,7 +64,18 @@ contextBridge.exposeInMainWorld("browserAPI", {
     getConfig: () => ipcRenderer.invoke("llmConnection:getConfig"),
     saveConfig: (config: unknown) =>
       ipcRenderer.invoke("llmConnection:saveConfig", config),
+    connect: (config?: unknown) =>
+      ipcRenderer.invoke("llmConnection:connect", config),
+    disconnect: (type?: string) =>
+      ipcRenderer.invoke("llmConnection:disconnect", type),
     test: (config?: unknown) => ipcRenderer.invoke("llmConnection:test", config),
+    probeApiKey: (input: { apiKey: string; provider?: string; endpoint?: string }) =>
+      ipcRenderer.invoke("llmConnection:probeApiKey", input),
+    discoverLocal: () => ipcRenderer.invoke("llmConnection:discoverLocal"),
+    listModels: (input: { url: string; apiKey?: string }) =>
+      ipcRenderer.invoke("llmConnection:listModels", input),
+    testCli: (input: { command: string; timeout?: number }) =>
+      ipcRenderer.invoke("llmConnection:testCli", input),
     providerDefaults: (provider: string) =>
       ipcRenderer.invoke("llmConnection:providerDefaults", provider),
     startOAuth: (config?: unknown) =>
@@ -89,6 +100,10 @@ contextBridge.exposeInMainWorld("browserAPI", {
   },
   dialog: {
     openCv: (): Promise<string | null> => ipcRenderer.invoke("dialog:open-cv"),
+    openFolder: (): Promise<{ canceled: boolean; path: string | null }> =>
+      ipcRenderer.invoke("dialog:openFolder"),
+    openFile: (): Promise<{ canceled: boolean; path: string | null }> =>
+      ipcRenderer.invoke("dialog:openFile"),
   },
   // Resolve a dropped File object to its absolute filesystem path. Electron 32+ removed File.path,
   // so the renderer must go through webUtils.getPathForFile (only available in the preload context).

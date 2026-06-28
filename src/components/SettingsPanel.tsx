@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useHistoryStore } from "../stores/historyStore";
 import { useDownloadStore } from "../stores/downloadStore";
+import { SetupWizard } from "./SetupWizard";
 import {
   CheckCircle2,
   Cpu,
@@ -92,6 +93,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
   const [status, setStatus] = useState("Settings ready.");
   const [statusKind, setStatusKind] = useState<"idle" | "ok" | "error">("idle");
   const [busy, setBusy] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   // "Clear browsing data" — what to wipe + progress.
   const [clearOpts, setClearOpts] = useState({ history: true, cookies: true, cache: true, siteData: false, downloads: true });
@@ -267,6 +269,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
           <div className="settings-section__heading">
             <PlugZap size={16} />
             <h3>LLM Connection</h3>
+            <button
+              type="button"
+              className="settings-wizard-trigger"
+              onClick={() => setWizardOpen(true)}
+              title="Guided setup"
+            >
+              ✨ Setup Wizard
+            </button>
           </div>
 
           <div className="settings-segmented">
@@ -579,6 +589,19 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
             )}
           </div>
             </section>
+          )}
+
+          {wizardOpen && (
+            <SetupWizard
+              initialType={llmConfig?.connectionType}
+              onClose={() => setWizardOpen(false)}
+              onConnected={(config) => {
+                setLlmConfig(config);
+                setStatus("Connected via setup wizard.");
+                setStatusKind("ok");
+                setWizardOpen(false);
+              }}
+            />
           )}
 
           {settingsTab === 1 && (

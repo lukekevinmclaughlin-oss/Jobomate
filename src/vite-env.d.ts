@@ -82,13 +82,63 @@ type LlmApiProvider =
 
 type LlmOAuthProvider = "GoogleVertex" | "Azure" | "HuggingFace" | "Custom";
 
+/** A model entry returned by API-key autodetection. */
+interface DetectedModel {
+  id: string;
+  label?: string;
+  ownedBy?: string;
+  supportsReasoning?: boolean;
+  supportsTools?: boolean;
+  supportsVision?: boolean;
+  contextWindow?: number;
+  tier?: "fast" | "balanced" | "flagship";
+}
+
+interface LocalRuntimeResult {
+  runtime: string;
+  baseUrl: string;
+  chatUrl: string;
+  models: DetectedModel[];
+  ok: boolean;
+}
+
+/** Aggregate capabilities for the recommended model. */
+interface ModelCapabilities {
+  supportsReasoning: boolean;
+  reasoningKind: "effort" | "extended" | "none";
+  supportsTools: boolean;
+  supportsVision: boolean;
+  defaultReasoningEffort?: "Low" | "Medium" | "High";
+}
+
+/** Result of probing an API key against candidate providers. */
+interface ApiKeyProbeResult {
+  ok: boolean;
+  provider?: LlmApiProvider;
+  endpoint: string;
+  modelsEndpoint?: string;
+  models: DetectedModel[];
+  recommendedModel?: string;
+  capabilities?: ModelCapabilities;
+  message: string;
+}
+
+interface BundledServerStatus {
+  available: boolean;
+  running: boolean;
+  baseUrl?: string;
+  modelPath?: string;
+  binaryPath?: string;
+  reason?: string;
+}
+
 interface LlmConnectionConfig {
   connectionType: LlmConnectionType;
   apiProvider: LlmApiProvider;
   apiKey: string;
   customEndpoint: string;
   model: string;
-  reasoningEffort: "Low" | "Medium" | "High";
+  reasoningEffort: "Low" | "Medium" | "High" | "Extra" | "Max" | "ExtraMax";
   fastMode: boolean;
   systemPrompt: string;
   localServerUrl: string;
@@ -202,9 +252,27 @@ interface BrowserAPI {
     saveConfig: (
       config: Partial<LlmConnectionConfig>
     ) => Promise<LlmConnectionConfig>;
+    connect: (
+      config?: Partial<LlmConnectionConfig>
+    ) => Promise<{ ok: boolean; message: string; config: LlmConnectionConfig }>;
+    disconnect: (type?: LlmConnectionType) => Promise<LlmConnectionConfig>;
     test: (
       config?: Partial<LlmConnectionConfig>
     ) => Promise<{ ok: boolean; message: string }>;
+    probeApiKey: (input: {
+      apiKey: string;
+      provider?: LlmApiProvider;
+      endpoint?: string;
+    }) => Promise<ApiKeyProbeResult>;
+    discoverLocal: () => Promise<LocalRuntimeResult[]>;
+    listModels: (input: {
+      url: string;
+      apiKey?: string;
+    }) => Promise<{ ok: boolean; models: DetectedModel[]; message: string }>;
+    testCli: (input: {
+      command: string;
+      timeout?: number;
+    }) => Promise<{ ok: boolean; output: string; message: string }>;
     providerDefaults: (
       provider: LlmApiProvider
     ) => Promise<{
@@ -250,6 +318,19 @@ interface BrowserAPI {
   };
   dialog: {
     openCv: () => Promise<string | null>;
+    openFolder: () => Promise<{ canceled: boolean; path: string | null }>;
+    openFile: () => Promise<{ canceled: boolean; path: string | null }>;
+  };
+  /** Bundled local llama-server. Optional: Jobomate ships no bundled runtime,
+   *  so the setup wizard calls this via optional chaining. */
+  localServer?: {
+    status: () => Promise<BundledServerStatus>;
+    start: (opts?: {
+      port?: number;
+      contextSize?: number;
+      modelPath?: string;
+    }) => Promise<BundledServerStatus>;
+    stop: () => Promise<BundledServerStatus>;
   };
   files: {
     pathFor: (file: File) => string;
