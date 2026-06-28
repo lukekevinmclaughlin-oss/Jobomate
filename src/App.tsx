@@ -339,7 +339,7 @@ const App: React.FC = () => {
           title="Drag to resize"
         />
 
-        {/* Jobomate workspace — the job-automation copilot, always docked on the right */}
+        {/* Jobomate workspace — the job-automation LLM HUB, always docked on the right */}
         <div className="app__jbm-pane" style={{ width: paneWidth }}>
           <JobomatePanel
             command={jobomateCommand}

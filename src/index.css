@@ -1864,7 +1864,7 @@ textarea {
 }
 
 /* ============================================================================
-   Jobomate workspace — the job-automation copilot docked on the right.
+   Jobomate workspace — the job-automation LLM HUB docked on the right.
    ============================================================================ */
 .app__jbm-pane {
     width: 400px; /* default; overridden by the inline width the user drags to */
