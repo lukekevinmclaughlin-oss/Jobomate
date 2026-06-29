@@ -268,6 +268,16 @@ const handleWebFetch: ToolHandler = async (args): Promise<string> => {
     return `Error fetching ${target.toString()}: ${reason}`;
   }
   if (!resp.ok) {
+    // Many high-value sites (Glassdoor, levels.fyi, LinkedIn, most job boards)
+    // block plain HTTP fetches with 403/429 anti-bot. The app has a real,
+    // JS-rendering browser — steer the agent to it instead of dead-ending.
+    if (resp.status === 403 || resp.status === 429 || resp.status === 451) {
+      return (
+        `Error: web_fetch was blocked (${resp.status} ${resp.statusText}) by ${target.hostname} — ` +
+        `this site rejects plain HTTP requests. Use the real browser instead: call browser_navigate ` +
+        `to "${target.toString()}", then browser_get_text / browser_snapshot to read the rendered page.`
+      );
+    }
     return `Error: web_fetch request failed (${resp.status} ${resp.statusText}) for ${target.toString()}`;
   }
 

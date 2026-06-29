@@ -16,8 +16,24 @@ const PptxGenJS: any = require("pptxgenjs");
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ExcelJS: any = require("exceljs");
 
-function resolvePath(ctx: ToolContext, p: string, ext: string): string {
-  let out = p || `maos-document.${ext}`;
+// Turn a document title into a safe, readable filename slug.
+function slugifyTitle(title: string): string {
+  return (title || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+function resolvePath(ctx: ToolContext, p: string, ext: string, title?: string): string {
+  // When the model doesn't name the file, derive a descriptive name from the
+  // document title instead of a generic "maos-document" that every artifact
+  // would overwrite. Fall back to a timestamped name when there's no title.
+  const slug = slugifyTitle(title || "");
+  const fallback = slug
+    ? `${slug}.${ext}`
+    : `maos-document-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.${ext}`;
+  let out = p || fallback;
   if (out.startsWith("~")) out = path.join(os.homedir(), out.slice(1));
   if (!path.isAbsolute(out)) out = path.resolve(ctx.cwd, out);
   if (!out.toLowerCase().endsWith(`.${ext}`)) out += `.${ext}`;
@@ -603,7 +619,7 @@ export const artifactWriterModule: ToolModule = {
   ],
   handlers: {
     write_pdf: async (args, ctx) => {
-      const filePath = resolvePath(ctx, str(args, "path", "file", "filename"), "pdf");
+      const filePath = resolvePath(ctx, str(args, "path", "file", "filename"), "pdf", str(args, "title"));
       if (!(await ctx.approve({ tool: "write_pdf", summary: `Create PDF ${filePath}` }))) return "Denied by user.";
       const images = await collectImages(ctx, args);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -616,7 +632,7 @@ export const artifactWriterModule: ToolModule = {
     },
 
     write_docx: async (args, ctx) => {
-      const filePath = resolvePath(ctx, str(args, "path", "file", "filename"), "docx");
+      const filePath = resolvePath(ctx, str(args, "path", "file", "filename"), "docx", str(args, "title"));
       if (!(await ctx.approve({ tool: "write_docx", summary: `Create Word doc ${filePath}` }))) return "Denied by user.";
       const images = await collectImages(ctx, args);
       await fs.mkdir(path.dirname(filePath), { recursive: true });

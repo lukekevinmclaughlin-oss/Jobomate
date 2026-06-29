@@ -187,6 +187,7 @@ interface AssistantToolRun {
 
 interface AssistantResponse {
   content: string;
+  reasoning?: string;
   toolRuns: AssistantToolRun[];
   connection: {
     type: LlmConnectionType;

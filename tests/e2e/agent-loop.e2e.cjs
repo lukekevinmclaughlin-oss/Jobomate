@@ -426,9 +426,11 @@ async function main() {
   });
 
   // ---------- loop robustness ----------
-  await run("L1", "stall guard (breaks at 8 identical rounds)", "loop forever", (r) => {
+  await run("L1", "stall guard (breaks fast on repeated no-progress)", "loop forever", (r) => {
+    // STALL_LIMIT lowered 8→4 so a stuck agent gives up fast instead of
+    // hammering the same call ~15x (as seen in live testing).
     const n = (r.toolRuns || []).length;
-    const ok = n === 8 && r.content.includes("STALL-BROKEN");
+    const ok = n === 4 && r.content.includes("STALL-BROKEN");
     return { pass: ok, detail: `broke after ${n} identical rounds, wrap="${String(r.content).slice(0, 20)}"` };
   }, { config: { maxToolRounds: 0 } });
 

@@ -564,6 +564,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
                 <span>System Prompt</span>
                 <textarea
                   value={llmConfig.systemPrompt}
+                  placeholder="Optional. Give the model a role or standing instructions, e.g. 'You are a senior recruiter. Be concise and explain your reasoning.'"
                   onChange={(event) => updateLlmConfig("systemPrompt", event.target.value)}
                 />
               </label>

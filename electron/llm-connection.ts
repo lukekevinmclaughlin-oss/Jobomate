@@ -236,6 +236,7 @@ interface ParsedToolCall {
 
 interface ParsedLlmResponse {
   content: string;
+  reasoning?: string;
   toolCalls: ParsedToolCall[];
   raw: unknown;
 }
@@ -253,6 +254,7 @@ export interface AssistantToolRun {
 
 export interface AssistantResponse {
   content: string;
+  reasoning?: string;
   toolRuns: AssistantToolRun[];
   connection: {
     type: AppConnectionType;
@@ -1102,9 +1104,10 @@ export class LlmConnectionManager {
     // multi-step browser tasks. A no-progress guard below still prevents runaway
     // loops even when unlimited.
     const maxRounds = config.maxToolRounds > 0 ? config.maxToolRounds : Infinity;
-    const STALL_LIMIT = 8;
+    const STALL_LIMIT = 4;
     let lastSignature = "";
     let stalledRounds = 0;
+    let nudged = false;
 
     for (let round = 0; round < maxRounds; round += 1) {
       // Honor user controls between steps: stop exits now; pause waits here for resume.
@@ -1127,6 +1130,7 @@ export class LlmConnectionManager {
       if (response.toolCalls.length === 0) {
         return {
           content: response.content.trim() || "Done.",
+          reasoning: response.reasoning,
           toolRuns,
           connection: this.connectionSummary(config),
         };
@@ -1139,10 +1143,24 @@ export class LlmConnectionManager {
       );
       if (signature === lastSignature) {
         stalledRounds += 1;
+        // Give the model one chance to self-correct before giving up — it's most
+        // likely repeating an action whose effect it didn't notice.
+        if (stalledRounds >= 2 && !nudged) {
+          messages.push({
+            role: "user",
+            content:
+              "You have just repeated the exact same tool call without making progress. " +
+              "The page or state has very likely already changed from that action. " +
+              "Do NOT repeat it. Instead: re-read the current state, try a different approach, " +
+              "or call done with your best answer from what you already have.",
+          });
+          nudged = true;
+        }
         if (stalledRounds >= STALL_LIMIT) break;
       } else {
         lastSignature = signature;
         stalledRounds = 0;
+        nudged = false;
       }
 
       const assistantSummary = response.content.trim() || "Calling browser tools.";
@@ -1156,6 +1174,7 @@ export class LlmConnectionManager {
           const message = stringArg(call.arguments, "message") || response.content || "Done.";
           return {
             content: message,
+            reasoning: response.reasoning,
             toolRuns,
             connection: this.connectionSummary(config),
           };
@@ -2373,7 +2392,9 @@ function parseOpenAiResponse(body: string): ParsedLlmResponse {
   const choices = Array.isArray(raw.choices) ? raw.choices : [];
   const first = choices[0] as { message?: Record<string, unknown> } | undefined;
   const message = first?.message || {};
-  const content = contentToText(message.content);
+  const rawContent = contentToText(message.content);
+  const content = stripThink(rawContent);
+  const reasoning = extractThink(rawContent);
   const nativeToolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
   const toolCalls = nativeToolCalls.map((item, index) => {
     const call = item as Record<string, unknown>;
@@ -2386,6 +2407,7 @@ function parseOpenAiResponse(body: string): ParsedLlmResponse {
   }).filter((call) => call.name);
   return {
     content,
+    reasoning,
     toolCalls: toolCalls.length > 0 ? toolCalls : parseJsonToolCalls(content),
     raw,
   };
@@ -2407,9 +2429,12 @@ function parseAnthropicResponse(body: string): ParsedLlmResponse {
       });
     }
   });
-  const content = text.join("");
+  const rawContent = text.join("");
+  const content = stripThink(rawContent);
+  const reasoning = extractThink(rawContent);
   return {
     content,
+    reasoning,
     toolCalls: toolCalls.length > 0 ? toolCalls : parseJsonToolCalls(content),
     raw,
   };
@@ -2434,9 +2459,12 @@ function parseGoogleResponse(body: string): ParsedLlmResponse {
       });
     }
   });
-  const content = text.join("");
+  const rawContent = text.join("");
+  const content = stripThink(rawContent);
+  const reasoning = extractThink(rawContent);
   return {
     content,
+    reasoning,
     toolCalls: toolCalls.length > 0 ? toolCalls : parseJsonToolCalls(content),
     raw,
   };
@@ -2641,6 +2669,37 @@ function highlightScript(selector: string): string {
 
 function trimForModel(value: string, max: number): string {
   return value.length <= max ? value : value.slice(0, max) + `\n[truncated ${value.length - max} chars]`;
+}
+
+// Reasoning models (GLM, DeepSeek, Qwen "thinking", etc.) emit their chain of
+// thought inline as <think>…</think> in the content. That is internal reasoning,
+// not the answer — strip it so the tags and the rambling never leak into the
+// chat. Removes completed blocks, any dangling open/close tag, and the stray
+// content after an unbalanced <think>.
+function stripThink(text: string): string {
+  if (!text || text.indexOf("<") === -1) return text;
+  let out = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const open = out.toLowerCase().lastIndexOf("<think>");
+  if (open !== -1) {
+    const closed = out.toLowerCase().indexOf("</think>", open);
+    if (closed === -1) out = out.slice(0, open);
+  }
+  return out.replace(/<\/?think>/gi, "").replace(/^\s+/, "");
+}
+
+// The reasoning (chain-of-thought) inside <think> blocks, concatenated, for the
+// live "Thinking" box. Returns "" when the model emitted no reasoning.
+function extractThink(text: string): string {
+  if (!text || text.indexOf("<") === -1) return "";
+  let acc = "";
+  const re = /<think>([\s\S]*?)<\/think>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) acc += m[1];
+  const open = text.toLowerCase().lastIndexOf("<think>");
+  if (open !== -1 && text.toLowerCase().indexOf("</think>", open) === -1) {
+    acc += text.slice(open + "<think>".length);
+  }
+  return acc.trim();
 }
 
 function trimForDisplay(value: string, max: number): string {

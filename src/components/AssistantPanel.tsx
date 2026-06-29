@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, FileText, Paperclip, Pause, Play, Power, Send, Square, UserRound, Wrench, X } from "lucide-react";
+import { Bot, Brain, FileText, Paperclip, Pause, Play, Power, Send, Square, UserRound, Wrench, X } from "lucide-react";
+import { stripReasoning, friendlyError, isTransient } from "../lib/sanitize";
 
 interface ChatMessage {
   id: string;
@@ -32,7 +33,11 @@ export const AssistantPanel: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [paused, setPaused] = useState(false);
   const [llmEnabled, setLlmEnabled] = useState(true);
+  // The model's chain-of-thought for the "Thinking" box (shown in orange). This
+  // engine doesn't stream, so it appears when the answer arrives.
+  const [reasoning, setReasoning] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+  const reasoningRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const history = useMemo<AssistantChatMessage[]>(
@@ -156,19 +161,33 @@ export const AssistantPanel: React.FC = () => {
     setAttachments([]);
     setPaused(false);
     setSending(true);
+    setReasoning("");
 
-    try {
-      const response = await window.browserAPI?.assistant.send({
+    const sendOnce = () =>
+      window.browserAPI?.assistant.send({
         prompt: text,
         history,
         attachments: outgoing.map((a) => ({ path: a.path, name: a.name, size: a.size })),
       });
+
+    try {
+      let response;
+      try {
+        response = await sendOnce();
+      } catch (firstError) {
+        // Transient failures (fetch failed / script failed) cleared on retry in
+        // testing — try once more automatically before surfacing anything.
+        if (!isTransient(firstError)) throw firstError;
+        await new Promise((r) => setTimeout(r, 600));
+        response = await sendOnce();
+      }
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
         content: response?.content || "No response.",
         toolRuns: response?.toolRuns || [],
       };
+      setReasoning(response?.reasoning || "");
       setMessages((prev) => [...prev, assistantMessage]);
       window.requestAnimationFrame(() => {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -179,7 +198,7 @@ export const AssistantPanel: React.FC = () => {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: error instanceof Error ? error.message : String(error),
+          content: friendlyError(error),
         },
       ]);
     } finally {
@@ -206,6 +225,17 @@ export const AssistantPanel: React.FC = () => {
           <Power size={14} />
         </button>
       </div>
+      {reasoning.trim() && (
+        <div className="assistant-reasoning" aria-label="Model reasoning">
+          <div className="assistant-reasoning__head">
+            <Brain size={13} />
+            <span>Thinking{sending ? "…" : ""}</span>
+          </div>
+          <div ref={reasoningRef} className="assistant-reasoning__body">
+            {reasoning}
+          </div>
+        </div>
+      )}
       <div ref={listRef} className="assistant-panel__messages">
         {messages.length === 0 && (
           <div className="assistant-panel__empty">No chat messages yet.</div>
@@ -219,7 +249,7 @@ export const AssistantPanel: React.FC = () => {
               {message.role === "user" ? <UserRound size={14} /> : <Bot size={14} />}
             </div>
             <div className="assistant-message__body">
-              <p>{message.content}</p>
+              <p>{stripReasoning(message.content)}</p>
               {message.attachments && message.attachments.length > 0 && (
                 <div className="assistant-message__attachments">
                   {message.attachments.map((attachment, index) => (
