@@ -1076,7 +1076,7 @@ export class LlmConnectionManager {
     prompt?: string;
     history?: AssistantChatMessage[];
     attachments?: AttachmentInput[];
-  }): Promise<AssistantResponse> {
+  }, onToken?: (delta: string) => void, onToolRun?: (run: AssistantToolRun) => void, onReasoning?: (delta: string) => void): Promise<AssistantResponse> {
     const prompt = (input.prompt || "").trim();
     const attachments = Array.isArray(input.attachments) ? input.attachments : [];
     if (!prompt && attachments.length === 0) throw new Error("Prompt is required.");
@@ -1100,6 +1100,8 @@ export class LlmConnectionManager {
     ];
     const tools = [...browserToolDefinitions(), ...extraToolDefinitions()];
     const toolRuns: AssistantToolRun[] = [];
+    const streamToken = config.enableLlmStreaming ? onToken : undefined;
+    const streamReasoning = config.enableLlmStreaming ? onReasoning : undefined;
     // maxToolRounds: 0 (or unset) = unlimited, so the model can carry out long,
     // multi-step browser tasks. A no-progress guard below still prevents runaway
     // loops even when unlimited.
@@ -1120,6 +1122,8 @@ export class LlmConnectionManager {
         response = await this.sendMessagesForConfig(config, messages, tools, {
           maxTokens: 2048,
           requireToolUse: config.requireToolUse && round === 0,
+          onToken: streamToken,
+          onReasoning: streamReasoning,
           signal: run.abort.signal,
         });
       } catch (error) {
@@ -1169,6 +1173,7 @@ export class LlmConnectionManager {
       for (const call of response.toolCalls) {
         const result = await this.dispatchBrowserTool(call.name, call.arguments);
         toolRuns.push({ name: call.name, arguments: call.arguments, result });
+        onToolRun?.({ name: call.name, arguments: call.arguments, result });
 
         if (call.name === "done") {
           const message = stringArg(call.arguments, "message") || response.content || "Done.";
@@ -1214,7 +1219,7 @@ export class LlmConnectionManager {
           },
         ],
         [],
-        { maxTokens: 1024, signal: run.abort.signal }
+        { maxTokens: 1024, onToken: streamToken, onReasoning: streamReasoning, signal: run.abort.signal }
       );
       return {
         content:
@@ -1245,6 +1250,8 @@ export class LlmConnectionManager {
       connectionTest?: boolean;
       maxTokens?: number;
       requireToolUse?: boolean;
+      onToken?: (delta: string) => void;
+      onReasoning?: (delta: string) => void;
       signal?: AbortSignal;
     } = {}
   ): Promise<ParsedLlmResponse> {
@@ -1287,7 +1294,7 @@ export class LlmConnectionManager {
     config: LlmConnectionConfig,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; onToken?: (delta: string) => void; onReasoning?: (delta: string) => void; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     const info = this.providerDefaults(config.apiProvider);
     const endpoint = config.customEndpoint.trim() || info.url;
@@ -1314,7 +1321,7 @@ export class LlmConnectionManager {
     config: LlmConnectionConfig,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; onToken?: (delta: string) => void; onReasoning?: (delta: string) => void; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     if (!config.oauthAccessToken.trim()) {
       throw new Error("OAuth token is missing. Connect OAuth in Settings first.");
@@ -1338,10 +1345,18 @@ export class LlmConnectionManager {
     auth: { header: string; value: string } | null,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; onToken?: (delta: string) => void; onReasoning?: (delta: string) => void; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (auth?.header && auth.value) headers[auth.header] = auth.value;
+
+    // Best-effort streaming fast path: emits tokens live. Any non-200 / fetch
+    // failure returns null so we fall through to the robust non-streaming path.
+    if (options.onToken && !options.connectionTest) {
+      const streamed = await this.streamOpenAiCompatible(endpoint, headers, model, messages, tools, options);
+      if (streamed) return streamed;
+    }
+
     const payload: Record<string, unknown> = {
       model,
       messages: buildOpenAiMessages(messages),
@@ -1407,13 +1422,139 @@ export class LlmConnectionManager {
     return parseOpenAiResponse(body);
   }
 
+  // Streaming variant of the OpenAI-compatible call: assembles a ParsedLlmResponse
+  // from SSE deltas while emitting the answer via onToken and the chain-of-thought
+  // via onReasoning. Returns null on any failure so the caller falls back to the
+  // robust non-streaming path (which keeps all the limitation retries).
+  private async streamOpenAiCompatible(
+    endpoint: string,
+    headers: Record<string, string>,
+    model: string,
+    messages: LlmMessage[],
+    tools: LlmToolDefinition[],
+    options: { maxTokens?: number; requireToolUse?: boolean; onToken?: (delta: string) => void; onReasoning?: (delta: string) => void; signal?: AbortSignal }
+  ): Promise<ParsedLlmResponse | null> {
+    const payload: Record<string, unknown> = {
+      model,
+      messages: buildOpenAiMessages(messages),
+      max_tokens: options.maxTokens || 4096,
+      temperature: 0,
+      stream: true,
+    };
+    if (tools.length > 0) {
+      payload.tools = tools;
+      payload.tool_choice = options.requireToolUse ? "required" : "auto";
+    }
+    if (/\b(o[1-9]|gpt-5)/i.test(model)) {
+      payload.max_completion_tokens = payload.max_tokens;
+      delete payload.max_tokens;
+      delete payload.temperature;
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        method: "POST",
+        headers: { ...headers, Accept: "text/event-stream" },
+        body: JSON.stringify(removeUndefined(payload)),
+        signal: options.signal,
+      });
+    } catch {
+      return null;
+    }
+    if (!res.ok || !res.body) return null;
+
+    let content = "";
+    let emitted = false;
+    let visibleEmitted = 0;
+    let reasoningEmitted = 0;
+    const toolAcc = new Map<number, { id: string; name: string; args: string }>();
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (data === "[DONE]") {
+            buffer = "";
+            break;
+          }
+          let chunk: any;
+          try {
+            chunk = JSON.parse(data);
+          } catch {
+            continue;
+          }
+          const delta = chunk?.choices?.[0]?.delta || {};
+          const reasoningField = delta.reasoning_content ?? delta.reasoning;
+          if (typeof reasoningField === "string" && reasoningField) {
+            options.onReasoning?.(reasoningField);
+          }
+          if (typeof delta.content === "string" && delta.content) {
+            content += delta.content;
+            emitted = true;
+            if (options.onToken) {
+              const visible = visibleStreamSoFar(content);
+              if (visible.length > visibleEmitted) {
+                options.onToken(visible.slice(visibleEmitted));
+                visibleEmitted = visible.length;
+              }
+            }
+            if (options.onReasoning) {
+              const reasoning = reasoningStreamSoFar(content);
+              if (reasoning.length > reasoningEmitted) {
+                options.onReasoning(reasoning.slice(reasoningEmitted));
+                reasoningEmitted = reasoning.length;
+              }
+            }
+          }
+          if (Array.isArray(delta.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const i = typeof tc.index === "number" ? tc.index : 0;
+              const cur = toolAcc.get(i) || { id: "", name: "", args: "" };
+              if (tc.id) cur.id = tc.id;
+              if (tc.function?.name) cur.name = tc.function.name;
+              if (tc.function?.arguments) cur.args += tc.function.arguments;
+              toolAcc.set(i, cur);
+            }
+          }
+        }
+      }
+    } catch {
+      if (!emitted && toolAcc.size === 0) return null;
+    }
+
+    const toolCalls = Array.from(toolAcc.values())
+      .filter((t) => t.name)
+      .map((t, index) => ({
+        id: t.id || `call_${index}`,
+        name: t.name,
+        arguments: parseArguments(t.args || "{}"),
+      }));
+    const cleaned = stripThink(content);
+    return {
+      content: cleaned,
+      reasoning: extractThink(content),
+      toolCalls: toolCalls.length > 0 ? toolCalls : parseJsonToolCalls(cleaned),
+      raw: { streamed: true },
+    };
+  }
+
   private async sendAnthropic(
     endpoint: string,
     key: string,
     config: LlmConnectionConfig,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; onToken?: (delta: string) => void; onReasoning?: (delta: string) => void; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     const system = messages
       .filter((message) => message.role === "system")
@@ -1474,7 +1615,7 @@ export class LlmConnectionManager {
     config: LlmConnectionConfig,
     messages: LlmMessage[],
     tools: LlmToolDefinition[],
-    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; signal?: AbortSignal }
+    options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; onToken?: (delta: string) => void; onReasoning?: (delta: string) => void; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     const url = appendQuery(endpoint.replace("{model}", resolvedModel(config)), "key", key);
     const functionDeclarations = tools.map((tool) => ({
@@ -2700,6 +2841,32 @@ function extractThink(text: string): string {
     acc += text.slice(open + "<think>".length);
   }
   return acc.trim();
+}
+
+// The portion of an in-progress (still streaming) reasoning response safe to
+// show as the answer: completed <think> blocks removed, an unclosed <think> and
+// everything after it hidden, and a trailing partial tag suppressed.
+function visibleStreamSoFar(raw: string): string {
+  let s = raw.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const open = s.toLowerCase().lastIndexOf("<think>");
+  if (open !== -1) s = s.slice(0, open);
+  s = s.replace(/<\/?(?:t|th|thi|thin|think)?$/i, "");
+  return s;
+}
+
+// The reasoning accumulated so far from inline <think> blocks (completed blocks
+// plus an as-yet-unclosed one). Grows monotonically, so callers stream the suffix.
+function reasoningStreamSoFar(raw: string): string {
+  let acc = "";
+  const re = /<think>([\s\S]*?)<\/think>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) acc += m[1];
+  const open = raw.toLowerCase().lastIndexOf("<think>");
+  if (open !== -1) {
+    const closed = raw.toLowerCase().indexOf("</think>", open);
+    if (closed === -1) acc += raw.slice(open + "<think>".length);
+  }
+  return acc;
 }
 
 function trimForDisplay(value: string, max: number): string {

@@ -33,12 +33,43 @@ export const AssistantPanel: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [paused, setPaused] = useState(false);
   const [llmEnabled, setLlmEnabled] = useState(true);
-  // The model's chain-of-thought for the "Thinking" box (shown in orange). This
-  // engine doesn't stream, so it appears when the answer arrives.
+  // Live answer tokens + the model's chain-of-thought for the orange "Thinking"
+  // box, both streamed in real time from the engine.
+  const [streamingText, setStreamingText] = useState("");
   const [reasoning, setReasoning] = useState("");
+  const sendingRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
   const reasoningRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Live streams from the engine: answer tokens, reasoning, and tool-round
+  // boundaries (each new round resets the buffers so the box shows the current
+  // step, not every round concatenated).
+  useEffect(() => {
+    const api = window.browserAPI;
+    const offStream = api?.assistant.onStream?.(({ delta }) => {
+      if (sendingRef.current) setStreamingText((prev) => prev + delta);
+    });
+    const offReason = api?.assistant.onReasoning?.(({ delta }) => {
+      if (sendingRef.current) setReasoning((prev) => prev + delta);
+    });
+    const offTool = api?.assistant.onToolRun?.(() => {
+      if (sendingRef.current) {
+        setStreamingText("");
+        setReasoning("");
+      }
+    });
+    return () => {
+      offStream?.();
+      offReason?.();
+      offTool?.();
+    };
+  }, []);
+
+  // Keep the reasoning box pinned to the latest thought.
+  useEffect(() => {
+    reasoningRef.current?.scrollTo({ top: reasoningRef.current.scrollHeight });
+  }, [reasoning]);
 
   const history = useMemo<AssistantChatMessage[]>(
     () => messages.map((message) => ({ role: message.role, content: message.content })),
@@ -161,7 +192,9 @@ export const AssistantPanel: React.FC = () => {
     setAttachments([]);
     setPaused(false);
     setSending(true);
+    sendingRef.current = true;
     setReasoning("");
+    setStreamingText("");
 
     const sendOnce = () =>
       window.browserAPI?.assistant.send({
@@ -187,7 +220,10 @@ export const AssistantPanel: React.FC = () => {
         content: response?.content || "No response.",
         toolRuns: response?.toolRuns || [],
       };
-      setReasoning(response?.reasoning || "");
+      // Keep the live-streamed reasoning if we got any; otherwise fall back to
+      // the reasoning returned with a non-streamed response.
+      setReasoning((prev) => prev || response?.reasoning || "");
+      setStreamingText("");
       setMessages((prev) => [...prev, assistantMessage]);
       window.requestAnimationFrame(() => {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -203,7 +239,9 @@ export const AssistantPanel: React.FC = () => {
       ]);
     } finally {
       setSending(false);
+      sendingRef.current = false;
       setPaused(false);
+      setStreamingText("");
     }
   };
 
@@ -275,7 +313,7 @@ export const AssistantPanel: React.FC = () => {
               <Bot size={14} />
             </div>
             <div className="assistant-message__body">
-              <p>Working...</p>
+              <p>{stripReasoning(streamingText) || "Working..."}</p>
             </div>
           </div>
         )}

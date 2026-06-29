@@ -268,6 +268,20 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify(obj));
     };
 
+    // S1: streaming path — emit SSE with an inline <think> block. The engine must
+    // route the answer to onToken and the chain-of-thought to onReasoning, and the
+    // final content must be the answer only (tags stripped).
+    if (test === "S1" && payload.stream === true) {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
+      send({ choices: [{ delta: { role: "assistant", content: "<think>thinking " } }] });
+      send({ choices: [{ delta: { content: "about it</think>The streamed " } }] });
+      send({ choices: [{ delta: { content: "answer." } }] });
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return;
+    }
+
     // L2: tool_choice degradation — reject any request carrying tool_choice.
     // Real loop path: required -> 400 -> auto -> 400 -> omit -> 200.
     if (test === "L2") {
@@ -325,7 +339,12 @@ async function main() {
     const mark = browserCalls.length;
     try {
       writeConfig(opts && opts.config);
-      const resp = await mgr.sendPrompt({ prompt: `[[${id}]] ${prompt}` });
+      const resp = await mgr.sendPrompt(
+        { prompt: `[[${id}]] ${prompt}` },
+        opts && opts.onToken,
+        opts && opts.onToolRun,
+        opts && opts.onReasoning,
+      );
       const { pass, detail } = check(resp, mark);
       record(id, name, pass, detail);
     } catch (e) {
@@ -450,6 +469,20 @@ async function main() {
     const ok = seen.streamValue === false && r.content.includes("STREAMING-DOC-DONE");
     return { pass: ok, detail: `payload.stream=${String(seen.streamValue)} (sendPrompt has no onToken; loop is JSON non-streaming)` };
   }, { config: { enableLlmStreaming: true } });
+
+  {
+    const tokens = [];
+    const reasoning = [];
+    await run("S1", "streaming: answer→onToken, <think>→onReasoning", "stream please", (r) => {
+      const streamed = tokens.join("");
+      const thought = reasoning.join("");
+      const ok =
+        streamed.includes("The streamed answer.") && !/<\/?think>/i.test(streamed) &&
+        thought.includes("thinking about it") && !/<\/?think>/i.test(thought) &&
+        r.content.includes("The streamed answer.") && !/<\/?think>/i.test(r.content);
+      return { pass: ok, detail: `stream="${streamed}" reasoning="${thought}" content="${r.content}"` };
+    }, { config: { enableLlmStreaming: true }, onToken: (d) => tokens.push(d), onReasoning: (d) => reasoning.push(d) });
+  }
 
   await run("L5", "finite-cap wrap-up answer", "never stop calling tools", (r) => {
     const ok = r.content.includes("CAPPED-ANSWER") && (r.toolRuns || []).length === 2;

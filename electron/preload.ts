@@ -90,6 +90,12 @@ contextBridge.exposeInMainWorld("browserAPI", {
     resume: () => ipcRenderer.invoke("assistant:resume"),
     setEnabled: (enabled: boolean) => ipcRenderer.invoke("assistant:setEnabled", enabled),
     controlState: () => ipcRenderer.invoke("assistant:controlState"),
+    onStream: (callback: (payload: { delta: string }) => void) =>
+      onChannel<{ delta: string }>("assistant:stream", callback),
+    onReasoning: (callback: (payload: { delta: string }) => void) =>
+      onChannel<{ delta: string }>("assistant:reasoning", callback),
+    onToolRun: (callback: (run: unknown) => void) =>
+      onChannel("assistant:tool", callback),
   },
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),

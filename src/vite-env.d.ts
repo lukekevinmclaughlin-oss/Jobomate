@@ -305,6 +305,9 @@ interface BrowserAPI {
     resume: () => Promise<{ paused: boolean }>;
     setEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>;
     controlState: () => Promise<{ enabled: boolean; running: boolean; paused: boolean }>;
+    onStream: (callback: (payload: { delta: string }) => void) => () => void;
+    onReasoning: (callback: (payload: { delta: string }) => void) => () => void;
+    onToolRun: (callback: (run: unknown) => void) => () => void;
   };
   shell: {
     openExternal: (url: string) => Promise<void>;

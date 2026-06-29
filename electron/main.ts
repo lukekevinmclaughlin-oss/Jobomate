@@ -1026,8 +1026,19 @@ function setupIpcHandlers(
   electron.ipcMain.handle("llmConnection:disconnectOAuth", (_event, provider) =>
     llmConnection.disconnectOAuth(provider)
   );
-  electron.ipcMain.handle("assistant:send", (_event, input) =>
-    llmConnection.sendPrompt(input)
+  electron.ipcMain.handle("assistant:send", (event, input) =>
+    llmConnection.sendPrompt(
+      input,
+      (delta) => {
+        if (!event.sender.isDestroyed()) event.sender.send("assistant:stream", { delta });
+      },
+      (run) => {
+        if (!event.sender.isDestroyed()) event.sender.send("assistant:tool", run);
+      },
+      (delta) => {
+        if (!event.sender.isDestroyed()) event.sender.send("assistant:reasoning", { delta });
+      },
+    )
   );
   electron.ipcMain.handle("assistant:stop", () => llmConnection.stopActiveRun());
   electron.ipcMain.handle("assistant:pause", () => llmConnection.pauseActiveRun());
