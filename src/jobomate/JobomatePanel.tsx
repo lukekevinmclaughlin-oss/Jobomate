@@ -181,22 +181,25 @@ export const JobomatePanel: React.FC<{
     document.addEventListener("mouseup", onUp);
   };
 
-  // On first run, start the three stacked panes (chat log / workbench / composer)
-  // at roughly equal heights so none dominates. Runs once; user drags then persist.
+  // On first run, make the CHAT LOG the dominant pane: the LLM dialogue gets the
+  // majority of the height, the workbench + composer stay compact. The message
+  // log is `flex:1` so it also grows with the window; the user can drag the
+  // divider below it (or above the composer) to resize any pane. Runs once.
   useEffect(() => {
-    if (localStorage.getItem("jbm_panes_v2")) return;
+    if (localStorage.getItem("jbm_panes_v4")) return;
     const apply = (): boolean => {
       const s = sectionRef.current;
       if (!s) return false;
       const avail = s.clientHeight - 236; // fixed chrome above the 3 panes
       if (avail < 300) return false;
-      const third = Math.floor(avail / 3);
-      const comp = Math.min(600, third);
-      setResultsH(third);
+      // Keep workbench + composer compact so the chat log gets the rest (~55%+).
+      const wb = Math.min(190, Math.max(120, Math.round(avail * 0.22)));
+      const comp = Math.min(200, Math.max(120, Math.round(avail * 0.22)));
+      setResultsH(wb);
       setComposerH(comp);
-      localStorage.setItem("jbm_results_h", String(third));
+      localStorage.setItem("jbm_results_h", String(wb));
       localStorage.setItem("jbm_composer_h", String(comp));
-      localStorage.setItem("jbm_panes_v2", "1");
+      localStorage.setItem("jbm_panes_v4", "1");
       return true;
     };
     if (!apply()) {

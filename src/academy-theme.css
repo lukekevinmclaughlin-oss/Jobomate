@@ -789,9 +789,9 @@ button.primary:hover,
   font-weight: 700;
 }
 .jbm__messages {
-  flex: 1 1 96px;
-  min-height: 74px;
-  max-height: 128px;
+  flex: 1 1 0;
+  min-height: 120px;
+  /* no max-height: the chat log fills its pane and stays user-resizable */
   padding: 10px 12px;
   gap: 8px;
   background: #fff;
@@ -802,11 +802,31 @@ button.primary:hover,
 }
 .jbm__vsplit,
 .jbm__composerSplit {
-  height: 5px;
+  height: 10px;
   background: #edf0f2;
+  cursor: row-resize;
+  position: relative;
+  flex: 0 0 auto;
+}
+.jbm__vsplit::after,
+.jbm__composerSplit::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 3px;
+  transform: translate(-50%, -50%);
+  border-radius: 2px;
+  background: #9aa4ad;
+}
+.jbm__vsplit:hover,
+.jbm__composerSplit:hover {
+  background: #dbe4ff;
 }
 .jbm__results {
-  min-height: 170px;
+  min-height: 120px;
+  overflow: hidden; /* respect the dragged height; inner list scrolls */
   background: #fff;
   border-top: 1px solid var(--academy-border);
 }
