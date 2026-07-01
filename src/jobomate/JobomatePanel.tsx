@@ -115,22 +115,20 @@ export const JobomatePanel: React.FC<{
   const loadedRef = useRef(false);
   const handledCommandRef = useRef<number | null>(null);
 
-  // User-resizable chat ↔ results split (drag the divider between the chat and the Jobs/Drafts list).
+  // User-resizable chat ↔ results split. Compact by default so the CHAT LOG
+  // (which is flex:1) stays the dominant pane; drag the divider to resize.
   const [resultsH, setResultsH] = useState(() => {
-    const s = Number(localStorage.getItem("jbm_results_h"));
-    // Keep the workbench compact by default so the chat log + composer get the
-    // room; it stays drag-resizable when the user wants a bigger pipeline view.
+    const s = Number(localStorage.getItem("jbm_rh2"));
     return s >= 90 && s <= 1000 ? s : 150;
   });
   const resultsHRef = useRef(resultsH);
   resultsHRef.current = resultsH;
 
-  // User-resizable message box (drag the divider above the composer to grow/shrink it).
+  // User-resizable composer. Modest by default (a few lines) — not a huge empty
+  // box; the chat log gets the space. Drag the divider above it to grow it.
   const [composerH, setComposerH] = useState(() => {
-    const s = Number(localStorage.getItem("jbm_composer_h"));
-    // Reject tiny legacy heights (old default was 42px) so the composer is
-    // comfortably sized by default; the user can still drag it smaller.
-    return s >= 72 && s <= 600 ? s : 130;
+    const s = Number(localStorage.getItem("jbm_ch2"));
+    return s >= 56 && s <= 600 ? s : 92;
   });
   const composerHRef = useRef(composerH);
   composerHRef.current = composerH;
@@ -152,7 +150,7 @@ export const JobomatePanel: React.FC<{
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      localStorage.setItem("jbm_composer_h", String(composerHRef.current));
+      localStorage.setItem("jbm_ch2", String(composerHRef.current));
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -175,38 +173,15 @@ export const JobomatePanel: React.FC<{
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      localStorage.setItem("jbm_results_h", String(resultsHRef.current));
+      localStorage.setItem("jbm_rh2", String(resultsHRef.current));
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   };
 
-  // On first run, make the CHAT LOG the dominant pane: the LLM dialogue gets the
-  // majority of the height, the workbench + composer stay compact. The message
-  // log is `flex:1` so it also grows with the window; the user can drag the
-  // divider below it (or above the composer) to resize any pane. Runs once.
-  useEffect(() => {
-    if (localStorage.getItem("jbm_panes_v4")) return;
-    const apply = (): boolean => {
-      const s = sectionRef.current;
-      if (!s) return false;
-      const avail = s.clientHeight - 236; // fixed chrome above the 3 panes
-      if (avail < 300) return false;
-      // Keep workbench + composer compact so the chat log gets the rest (~55%+).
-      const wb = Math.min(190, Math.max(120, Math.round(avail * 0.22)));
-      const comp = Math.min(200, Math.max(120, Math.round(avail * 0.22)));
-      setResultsH(wb);
-      setComposerH(comp);
-      localStorage.setItem("jbm_results_h", String(wb));
-      localStorage.setItem("jbm_composer_h", String(comp));
-      localStorage.setItem("jbm_panes_v4", "1");
-      return true;
-    };
-    if (!apply()) {
-      const id = setTimeout(apply, 300); // section not measured yet → retry once
-      return () => clearTimeout(id);
-    }
-  }, []);
+  // The CHAT LOG (.jbm__messages, flex:1) is the dominant pane: the workbench
+  // (resultsH ~150) and composer (composerH ~92) are compact fixed defaults, so
+  // the chat log fills the rest and grows with the window. Each is drag-resizable.
 
   const refreshStatus = useCallback(async () => {
     try {
