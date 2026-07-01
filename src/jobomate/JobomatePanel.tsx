@@ -729,27 +729,123 @@ export const JobomatePanel: React.FC<{
     [jobs.length, refreshData, refreshStatus, status?.mode, draftKind],
   );
 
+  const sendMessage = useCallback(
+    async (text: string) => {
+      const t = text.trim();
+      if (!t || busy) return;
+      say("user", t);
+      setBusy("Thinking…");
+      try {
+        const r = await engine.chat(t);
+        if (!r) {
+          say("system", "Couldn't reach the engine — open Settings and check the model connection.");
+          setBusy(null);
+          return;
+        }
+        if (r.text) say("assistant", r.text);
+        setBusy(null);
+        for (const a of r.actions || []) await runAction(a);
+      } catch (e: any) {
+        say("system", "Engine error: " + e.message);
+        setBusy(null);
+      }
+    },
+    [busy, runAction],
+  );
+
   const send = useCallback(async () => {
     const text = prompt.trim();
     if (!text || busy) return;
     setPrompt("");
-    say("user", text);
-    setBusy("Thinking…");
+    await sendMessage(text);
+  }, [prompt, busy, sendMessage]);
+
+  // ---- pipeline stages as reviewable browser tabs ----
+  // Open a stage as a preview tab in Jobomate's own browser (the workbench moved here).
+  const openStageTab = useCallback(
+    (stage: WorkflowStage) => {
+      const mode = status?.mode === "Recruiter" ? "recruiter" : "seeker";
+      const kind = draftKind === "speculative" ? "speculative" : "job";
+      window.browserAPI?.review?.openStage(stage, mode, kind);
+    },
+    [status?.mode, draftKind],
+  );
+
+  // Open the user's email account, prepare drafts, and hand off for approval to send.
+  const runEmailFlow = useCallback(async () => {
+    setBusy("Preparing to send…");
     try {
-      const r = await engine.chat(text);
-      if (!r) {
-        say("system", "Couldn't reach the engine — open Settings and check the model connection.");
-        setBusy(null);
-        return;
+      await engine.prepareEmails();
+      try {
+        await engine.createDrafts();
+      } catch {
+        /* create-drafts is best-effort (needs an email account connected) */
       }
-      if (r.text) say("assistant", r.text);
-      setBusy(null);
-      for (const a of r.actions || []) await runAction(a);
+      await engine.openBrowser("https://mail.google.com/");
+      say(
+        "assistant",
+        "I've opened your email account in a tab — sign in if needed. Your applications are drafted and queued; review them, then say “send them” and I'll send on your approval.",
+      );
     } catch (e: any) {
-      say("system", "Engine error: " + e.message);
-      setBusy(null);
+      say("system", "Email preparation problem: " + e.message);
     }
-  }, [prompt, busy, runAction]);
+    setBusy(null);
+  }, []);
+
+  // Approve on a review tab → run the next stage's work + open its tab.
+  const advanceStage = useCallback(
+    async (stage: WorkflowStage) => {
+      const spec = status?.mode === "Recruiter" || draftKind === "speculative";
+      try {
+        if (stage === "discover") {
+          setBusy(spec ? "Scoring fit…" : "Scoring all jobs…");
+          await engine.scoreAllJobs();
+          await refreshData();
+          setBusy(null);
+          openStageTab("evaluate");
+        } else if (stage === "evaluate") {
+          setBusy("Drafting applications…");
+          await engine.draft(spec ? "company" : "job");
+          await refreshData();
+          setBusy(null);
+          openStageTab("draft");
+        } else if (stage === "draft") {
+          setBusy("Marking approved…");
+          await engine.approve();
+          await refreshData();
+          setBusy(null);
+          openStageTab("send");
+        } else if (stage === "approve") {
+          openStageTab("send");
+        } else if (stage === "send") {
+          await runEmailFlow();
+        }
+      } catch (e: any) {
+        setBusy(null);
+        say("system", "Problem advancing the workflow: " + e.message);
+      }
+    },
+    [status?.mode, draftKind, refreshData, openStageTab, runEmailFlow],
+  );
+
+  // React to Approve / Request-changes clicks coming from the review tabs.
+  useEffect(() => {
+    const dispose = window.browserAPI?.review?.onAction(
+      (a: { stage: WorkflowStage; action: "approve" | "changes"; notes: string }) => {
+        if (a.action === "changes") {
+          const note = (a.notes || "").trim();
+          void sendMessage(
+            note
+              ? `Please revise the ${a.stage} stage. Requested changes: ${note}`
+              : `Please revise the ${a.stage} stage.`,
+          );
+        } else {
+          void advanceStage(a.stage);
+        }
+      },
+    );
+    return () => dispose?.();
+  }, [advanceStage, sendMessage]);
 
   const quick = async (action: string) => {
     if (!busy) await runAction(action);
@@ -993,13 +1089,8 @@ export const JobomatePanel: React.FC<{
 
   const selectWorkflowStage = (stage: WorkflowStage) => {
     setWorkflowStage(stage);
-    if (stage === "draft" || stage === "approve" || stage === "send") {
-      setTab("drafts");
-    } else if (stage === "track") {
-      setTab("tracker");
-    } else {
-      setTab("jobs");
-    }
+    // Open the stage as a full review tab in Jobomate's own browser.
+    openStageTab(stage);
   };
 
   const scoreAll = useCallback(async () => {
@@ -1467,15 +1558,18 @@ export const JobomatePanel: React.FC<{
         )}
       </div>
 
+      {/* Workbench removed from the chat area — each pipeline stage now opens as a
+          reviewable tab in Jobomate's own browser (see the stage buttons above). */}
       <div
         className="jbm__vsplit"
         onMouseDown={startResultsDrag}
         title="Drag to resize"
+        style={{ display: "none" }}
       />
 
       <div
         className="jbm__results"
-        style={{ height: resultsH, maxHeight: "none", flexShrink: 0 }}
+        style={{ display: "none" }}
       >
         <div className="jbm__workbenchHead">
           <div>

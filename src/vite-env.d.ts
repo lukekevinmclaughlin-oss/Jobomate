@@ -366,6 +366,18 @@ interface BrowserAPI {
   onTabSwitched: (callback: (tab: BrowserAPITab) => void) => () => void;
   onTabUpdated: (callback: (tab: BrowserAPITab) => void) => () => void;
   onShortcut: (callback: (shortcut: string) => void) => () => void;
+  review: {
+    openStage: (stage: string, mode: string, kind: string) => Promise<unknown>;
+    onAction: (
+      callback: (payload: {
+        stage: "discover" | "evaluate" | "draft" | "approve" | "send" | "track";
+        action: "approve" | "changes";
+        notes: string;
+        mode: string;
+        kind: string;
+      }) => void
+    ) => () => void;
+  };
   onOAuthUpdated: (
     callback: (payload: { message: string; error?: boolean }) => void
   ) => () => void;

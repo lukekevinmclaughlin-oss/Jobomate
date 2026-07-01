@@ -156,6 +156,14 @@ contextBridge.exposeInMainWorld("browserAPI", {
     );
     return () => disposers.forEach((dispose) => dispose());
   },
+  review: {
+    // Open a pipeline stage as a reviewable tab in Jobomate's own browser.
+    openStage: (stage: string, mode: string, kind: string) =>
+      ipcRenderer.invoke("review:openStage", stage, mode, kind),
+    // Fires when the user clicks Approve / Request-changes on a review tab.
+    onAction: <T>(callback: (payload: T) => void) =>
+      onChannel<T>("review:action", callback),
+  },
   onOAuthUpdated: <T>(callback: (payload: T) => void) =>
     onChannel<T>("llmConnection:oauth-updated", callback),
   onDownloadStarted: <T>(callback: (payload: T) => void) =>

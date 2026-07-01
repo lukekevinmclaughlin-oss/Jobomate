@@ -10,6 +10,13 @@ import {
 } from "./llm-server";
 import { LlmConnectionManager } from "./llm-connection";
 import { startEngine, stopEngine, ENGINE_PORT } from "./jobomate-engine";
+import {
+  startReviewServer,
+  stopReviewServer,
+  reviewUrl,
+  type ReviewAction,
+  type StageId,
+} from "./review-server";
 
 /**
  * Per-session shared secret for the loopback engine API. Generated fresh each launch, handed to the
@@ -1076,6 +1083,9 @@ function setupIpcHandlers(
   electron.ipcMain.handle("llmConnection:listModels", (_event, input) =>
     llmConnection.listModelsForEndpoint(input)
   );
+  electron.ipcMain.handle("review:openStage", (_event, stage: StageId, mode: string, kind: string) =>
+    createTab(reviewUrl(stage, mode, kind), true),
+  );
   electron.ipcMain.handle("llmConnection:connectionModels", (_event, input) =>
     llmConnection.connectionModels(input)
   );
@@ -1232,6 +1242,12 @@ electron.app.whenReady().then(() => {
   electron.nativeTheme.themeSource = "light";
   startEngine(ENGINE_TOKEN); // headless Jobomate job-automation backend (localhost:9223), token-gated
   syncLlmToEngineWhenReady(); // push the saved LLM connection into the engine once it's up
+  // Review-tab server: renders each pipeline stage as a reviewable browser tab.
+  startReviewServer({
+    enginePort: ENGINE_PORT,
+    engineToken: ENGINE_TOKEN,
+    onAction: (a: ReviewAction) => mainWindow?.webContents.send("review:action", a),
+  }).catch((e) => console.warn("[jobomate] review server failed:", e));
   const controller = createBrowserController();
   llmConnectionManager = new LlmConnectionManager(() => controller, {
     // Approval gate for the harness's side-effecting tools (github_commit,
@@ -1313,6 +1329,7 @@ electron.app.on("window-all-closed", () => {
 
 electron.app.on("will-quit", () => {
   stopLlmServer();
+  stopReviewServer();
   removeBridgeAuthFile();
   stopEngine();
   electron.globalShortcut.unregisterAll();
