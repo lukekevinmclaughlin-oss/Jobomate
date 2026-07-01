@@ -19,6 +19,64 @@ import { startEngine, stopEngine, ENGINE_PORT } from "./jobomate-engine";
  */
 const ENGINE_TOKEN = crypto.randomBytes(32).toString("hex");
 
+/**
+ * Mirror the Electron-side LLM connection (what the Settings panel configures)
+ * into the C# engine, which powers the "Message Jobomate" chat and keeps its
+ * OWN LLM config. Without this the user connects a model in Settings but the
+ * engine still reports "no model" and the chat never answers. Pushes the API
+ * key (per-provider credential store) + the full config (provider / model /
+ * custom endpoint), which also flips the engine's `connected` flag on.
+ */
+async function syncLlmToEngine(): Promise<void> {
+  if (!llmConnectionManager) return;
+  try {
+    const cfg = await llmConnectionManager.exportConfigForEngine();
+    const base = `http://127.0.0.1:${ENGINE_PORT}`;
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Jobomate-Token": ENGINE_TOKEN,
+    };
+    if (cfg.connectionType === "ApiKey" && cfg.apiKey && cfg.apiProvider) {
+      await fetch(`${base}/api/llm/key`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ provider: cfg.apiProvider, key: cfg.apiKey }),
+      }).catch(() => undefined);
+    }
+    await fetch(`${base}/api/llm/config`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        config: {
+          id: "llm",
+          connectionType: cfg.connectionType,
+          apiProvider: cfg.apiProvider,
+          model: cfg.model,
+          customEndpoint: cfg.customEndpoint,
+          localServerUrl: cfg.localServerUrl,
+          localModelName: cfg.localModelName,
+        },
+      }),
+    }).catch(() => undefined);
+  } catch (err) {
+    console.warn("[jobomate] syncLlmToEngine failed:", err);
+  }
+}
+
+/** Wait for the engine to bind, then push the connection into it (once, on boot). */
+function syncLlmToEngineWhenReady(attempt = 0): void {
+  fetch(`http://127.0.0.1:${ENGINE_PORT}/api/status`, {
+    headers: { "X-Jobomate-Token": ENGINE_TOKEN },
+  })
+    .then((r) => {
+      if (r.ok) void syncLlmToEngine();
+      else throw new Error("engine not ready");
+    })
+    .catch(() => {
+      if (attempt < 30) setTimeout(() => syncLlmToEngineWhenReady(attempt + 1), 1000);
+    });
+}
+
 interface TabSnapshot {
   id: string;
   url: string;
@@ -993,12 +1051,16 @@ function setupIpcHandlers(
   electron.ipcMain.handle("llmConnection:getConfig", () =>
     llmConnection.getConfig()
   );
-  electron.ipcMain.handle("llmConnection:saveConfig", (_event, config) =>
-    llmConnection.saveConfig(config)
-  );
-  electron.ipcMain.handle("llmConnection:connect", (_event, config) =>
-    llmConnection.connect(config)
-  );
+  electron.ipcMain.handle("llmConnection:saveConfig", async (_event, config) => {
+    const saved = await llmConnection.saveConfig(config);
+    void syncLlmToEngine(); // mirror into the C# engine so chat uses the model
+    return saved;
+  });
+  electron.ipcMain.handle("llmConnection:connect", async (_event, config) => {
+    const result = await llmConnection.connect(config);
+    void syncLlmToEngine();
+    return result;
+  });
   electron.ipcMain.handle("llmConnection:disconnect", (_event, type) =>
     llmConnection.disconnect(type)
   );
@@ -1169,6 +1231,7 @@ electron.app.whenReady().then(() => {
   // to report `prefers-color-scheme: light`.
   electron.nativeTheme.themeSource = "light";
   startEngine(ENGINE_TOKEN); // headless Jobomate job-automation backend (localhost:9223), token-gated
+  syncLlmToEngineWhenReady(); // push the saved LLM connection into the engine once it's up
   const controller = createBrowserController();
   llmConnectionManager = new LlmConnectionManager(() => controller, {
     // Approval gate for the harness's side-effecting tools (github_commit,

@@ -1929,6 +1929,7 @@ textarea {
 .jbm {
     display: flex;
     flex-direction: column;
+    flex: 1;
     height: 100%;
     min-height: 0;
     font-size: 13px;
@@ -2217,11 +2218,25 @@ textarea {
 }
 /* Draggable divider between the chat and the Jobs/Drafts list (resize either area vertically). */
 .jbm__vsplit {
-    height: 7px;
+    height: 9px;
     flex-shrink: 0;
     cursor: row-resize;
     background: var(--border-primary);
     transition: background var(--transition-fast);
+    position: relative;
+}
+.jbm__vsplit::after,
+.jbm__composerSplit::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 36px;
+    height: 3px;
+    transform: translate(-50%, -50%);
+    border-radius: 2px;
+    background: var(--text-secondary);
+    opacity: 0.4;
 }
 .jbm__vsplit:hover,
 .jbm__vsplit:active {

@@ -181,6 +181,30 @@ export const JobomatePanel: React.FC<{
     document.addEventListener("mouseup", onUp);
   };
 
+  // On first run, start the three stacked panes (chat log / workbench / composer)
+  // at roughly equal heights so none dominates. Runs once; user drags then persist.
+  useEffect(() => {
+    if (localStorage.getItem("jbm_panes_v2")) return;
+    const apply = (): boolean => {
+      const s = sectionRef.current;
+      if (!s) return false;
+      const avail = s.clientHeight - 236; // fixed chrome above the 3 panes
+      if (avail < 300) return false;
+      const third = Math.floor(avail / 3);
+      const comp = Math.min(600, third);
+      setResultsH(third);
+      setComposerH(comp);
+      localStorage.setItem("jbm_results_h", String(third));
+      localStorage.setItem("jbm_composer_h", String(comp));
+      localStorage.setItem("jbm_panes_v2", "1");
+      return true;
+    };
+    if (!apply()) {
+      const id = setTimeout(apply, 300); // section not measured yet → retry once
+      return () => clearTimeout(id);
+    }
+  }, []);
+
   const refreshStatus = useCallback(async () => {
     try {
       const s = await engine.status();

@@ -836,6 +836,34 @@ export class LlmConnectionManager {
   }
 
   /**
+   * Export the active connection (with the DECRYPTED key) for the C# engine,
+   * which powers the "Message Jobomate" chat and has its own LLM config. The
+   * Settings panel writes the Electron-side connection; this lets the app mirror
+   * it into the engine so the connected model actually answers in chat.
+   */
+  async exportConfigForEngine(): Promise<{
+    connectionType: string;
+    apiProvider: string;
+    model: string;
+    customEndpoint: string;
+    apiKey: string;
+    localServerUrl: string;
+    localModelName: string;
+  }> {
+    const c = await this.loadConfig();
+    return {
+      connectionType: c.connectionType,
+      apiProvider: c.apiProvider,
+      model: c.model,
+      // Only forward an endpoint that's actually an API URL (never a website).
+      customEndpoint: isPlausibleApiEndpoint(c.customEndpoint) ? c.customEndpoint.trim() : "",
+      apiKey: c.apiKey,
+      localServerUrl: c.localServerUrl,
+      localModelName: c.localModelName,
+    };
+  }
+
+  /**
    * List the models available for the CURRENT saved connection so the settings
    * UI can offer a dropdown (no typing the model name). Uses the saved API key
    * (the form doesn't re-send it once saved), the provider's /models endpoint,
@@ -865,29 +893,53 @@ export class LlmConnectionManager {
       }
       const endpoint = isPlausibleApiEndpoint(config.customEndpoint) ? config.customEndpoint.trim() : info.url;
       const modelsEndpoint = resolveModelsEndpoint(provider, endpoint);
-      let detected = modelsEndpoint ? await fetchModelList(provider, modelsEndpoint, key).catch((e) => {
-        // Z.AI Coding Plan: the PAYG /models 429s → retry the coding endpoint.
-        if (provider === "ZAI" && isZaiCodingPlanError(e) && /\/paas\/v4/.test(modelsEndpoint) && !/\/coding\//.test(modelsEndpoint)) {
-          return fetchModelList(provider, modelsEndpoint.replace("/paas/v4", "/coding/paas/v4"), key);
+      // Try to list live models, but NEVER let a failure empty the dropdown —
+      // fall back to curated/known models so the user always has a menu.
+      let detected: DetectedModel[] = [];
+      if (modelsEndpoint) {
+        try {
+          detected = await fetchModelList(provider, modelsEndpoint, key);
+        } catch (e) {
+          if (
+            provider === "ZAI" &&
+            isZaiCodingPlanError(e) &&
+            /\/paas\/v4/.test(modelsEndpoint) &&
+            !/\/coding\//.test(modelsEndpoint)
+          ) {
+            try {
+              detected = await fetchModelList(
+                provider,
+                modelsEndpoint.replace("/paas/v4", "/coding/paas/v4"),
+                key,
+              );
+            } catch {
+              detected = [];
+            }
+          } else {
+            detected = []; // fall through to curated list below
+          }
         }
-        throw e;
-      }) : [];
-      const ids = detected.map((m) => m.id);
-      // Always include the current + provider-default model so the dropdown works
-      // even when a provider doesn't expose /models.
-      const merged = Array.from(
-        new Set([config.model, info.model, ...ids].map((s) => (s || "").trim()).filter(Boolean)),
-      );
-      if (ids.length === 0) {
-        return {
-          ok: merged.length > 0,
-          models: merged,
-          message: merged.length
-            ? "This provider doesn't list models over the API — showing known defaults. You can also type a model name."
-            : "No models available.",
-        };
       }
-      return { ok: true, models: merged, message: `${ids.length} model(s) available.` };
+      const ids = detected.map((m) => m.id);
+      const curated = CURATED_MODELS[provider] || [];
+      // Live models first, then the selected/default/curated models, de-duped.
+      const merged = Array.from(
+        new Set(
+          [...ids, config.model, info.model, ...curated]
+            .map((s) => (s || "").trim())
+            .filter(Boolean),
+        ),
+      );
+      return {
+        ok: merged.length > 0,
+        models: merged,
+        message:
+          ids.length > 0
+            ? `${ids.length} model(s) available.`
+            : merged.length
+              ? "Showing known models for this provider (its API didn't return a list). You can also type a model name."
+              : "No models available.",
+      };
     } catch (error) {
       return { ok: false, models: [], message: this.errorMessage(error) };
     }
@@ -2710,6 +2762,25 @@ function isZaiCodingPlanError(error: unknown): boolean {
     msg.includes("resource package")
   );
 }
+
+/**
+ * Well-known models per provider, used to populate the settings dropdown when a
+ * provider's /models endpoint isn't available (e.g. a Z.AI Coding-Plan key can't
+ * list models but chat works fine). Live models are always preferred; these are
+ * the fallback so the dropdown is never empty.
+ */
+const CURATED_MODELS: Partial<Record<AppApiProvider, string[]>> = {
+  ZAI: ["glm-4.6", "glm-4.5", "glm-4.5-air", "glm-4.5-x", "glm-4.5-airx", "glm-4.5-flash"],
+  OpenAI: ["gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "o3", "o4-mini"],
+  Anthropic: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest"],
+  DeepSeek: ["deepseek-chat", "deepseek-reasoner"],
+  GoogleAI: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
+  Groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+  Mistral: ["mistral-large-latest", "mistral-small-latest"],
+  XAI: ["grok-4", "grok-3", "grok-3-mini"],
+  Perplexity: ["sonar-pro", "sonar", "sonar-reasoning"],
+  MoonshotAI: ["kimi-k2-0711-preview", "moonshot-v1-128k"],
+};
 
 function parseOpenAiResponse(body: string): ParsedLlmResponse {
   const raw = parseJsonBody(body, "chat completion");
