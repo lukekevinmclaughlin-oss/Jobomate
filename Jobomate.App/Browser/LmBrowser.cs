@@ -21,7 +21,12 @@ namespace Jobomate.Browser;
 /// </summary>
 public sealed class LmBrowser
 {
-    private const string RpcUrl = "http://127.0.0.1:9222/api/rpc";
+    // The control server is Jobomate's OWN in-app browser bridge. Its port is
+    // written to bridge-auth.json by the Electron host (it defaults to 9222 but
+    // may differ); we read it there so we always drive the app's own browser and
+    // NEVER launch a separate window.
+    private int _bridgePort = 9222;
+    private string RpcUrl => $"http://127.0.0.1:{_bridgePort}/api/rpc";
 
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(60) };
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -54,26 +59,21 @@ public sealed class LmBrowser
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            // Drive Jobomate's OWN in-app browser via its control bridge. We never
+            // launch a separate browser window — the app's browser is always
+            // present. The bridge auto-starts with the app; if we get here before
+            // it's ready, poll briefly (re-reading the port each time).
             if (await PingAsync(ct).ConfigureAwait(false)) { _running = true; return true; }
 
-            var app = FindApp();
-            if (app is null)
-            {
-                Set("LM_Browser app not found — build it in the LLM_Browser project (npm run package:mac).");
-                return false;
-            }
-
-            Set("Launching the LM Browser…");
-            try { Process.Start(new ProcessStartInfo("open") { ArgumentList = { app }, UseShellExecute = false }); }
-            catch (Exception ex) { Set("Couldn't launch LM Browser: " + ex.Message); return false; }
-
-            for (var i = 0; i < 60; i++)
+            Set("Waiting for the in-app browser…");
+            for (var i = 0; i < 30; i++)
             {
                 if (ct.IsCancellationRequested) return false;
-                await Task.Delay(500, ct).ConfigureAwait(false);
+                await Task.Delay(400, ct).ConfigureAwait(false);
+                _bridgeToken = null; // re-read bridge-auth.json (port/token) each attempt
                 if (await PingAsync(ct).ConfigureAwait(false)) { _running = true; Set("Browser ready"); return true; }
             }
-            Set("LM Browser didn't respond on port 9222.");
+            Set("The in-app browser isn't ready yet — try again in a moment.");
             return false;
         }
         catch (Exception ex) { Set("Browser error: " + ex.Message); return false; }
@@ -110,6 +110,9 @@ public sealed class LmBrowser
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
             if (doc.RootElement.TryGetProperty("token", out var t) && t.ValueKind == JsonValueKind.String)
                 _bridgeToken = t.GetString();
+            // Read the actual bridge port so we drive the app's own browser.
+            if (doc.RootElement.TryGetProperty("port", out var p) && p.TryGetInt32(out var port) && port > 0)
+                _bridgePort = port;
         }
         catch { /* file missing / unreadable — caller falls through to a tokenless attempt */ }
         return _bridgeToken;
@@ -179,7 +182,8 @@ public sealed class LmBrowser
             await RpcAsync("browser.navigate", new { url }, ct).ConfigureAwait(false);
             await Task.Delay(1800, ct).ConfigureAwait(false);
             await RefreshUrlAsync(ct).ConfigureAwait(false);
-            try { var app = FindApp(); if (app is not null) Process.Start(new ProcessStartInfo("open") { ArgumentList = { app }, UseShellExecute = false }); } catch { }
+            // Navigation happens in Jobomate's OWN in-app browser via the bridge —
+            // no separate browser window is launched.
             Set("Open: " + CurrentUrl);
             return true;
         }
@@ -310,22 +314,6 @@ public sealed class LmBrowser
         try { Process.Start(new ProcessStartInfo("pkill") { ArgumentList = { "-f", "LM_Browser.app/Contents/MacOS/LM_Browser" }, UseShellExecute = false }); } catch { }
         Set("Closed");
         return Task.CompletedTask;
-    }
-
-    // ---------------------------------------------------------------- locate the app ----
-
-    private static string? FindApp()
-    {
-        foreach (var p in new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "..", "Resources", "LM_Browser.app"), // shipped in the .app bundle
-            Path.Combine(AppContext.BaseDirectory, "LM_Browser.app"),
-            "/Users/lukemclaughlin/Documents/GitHub/LLM_Browser/release/mac-arm64/LM_Browser.app", // dev build
-        })
-        {
-            try { var full = Path.GetFullPath(p); if (Directory.Exists(full)) return full; } catch { }
-        }
-        return null;
     }
 
     private static string Escape(string s) => s.Replace("\\", "\\\\").Replace("\"", "'");
