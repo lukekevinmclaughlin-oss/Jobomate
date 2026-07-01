@@ -34,6 +34,10 @@ const connectionTypes: Array<{ value: LlmConnectionType; label: string }> = [
   { value: "LocalAI", label: "Local AI" },
 ];
 
+// Z.AI serves its GLM Coding Plan from a different base path than the standard
+// PAYG API. This is a USER-CONTROLLED opt-in (toggle below) — never a default.
+const ZAI_CODING_ENDPOINT = "https://api.z.ai/api/coding/paas/v4/chat/completions";
+
 const apiProviders: LlmApiProvider[] = [
   "OpenAI",
   "Anthropic",
@@ -392,6 +396,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
                   onChange={(event) => updateLlmConfig("apiKey", event.target.value)}
                 />
               </label>
+              {llmConfig.apiProvider === "ZAI" && (
+                <label className="settings-field settings-field--wide" style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    style={{ marginTop: 3 }}
+                    checked={llmConfig.customEndpoint.includes("/coding/")}
+                    onChange={(event) =>
+                      updateLlmConfig("customEndpoint", event.target.checked ? ZAI_CODING_ENDPOINT : "")
+                    }
+                  />
+                  <span style={{ fontSize: 12.5 }}>
+                    <strong>GLM Coding Plan</strong> — turn on only if your Z.AI key is a GLM Coding
+                    Plan subscription (it uses a different endpoint). Leave off for a standard Z.AI key.
+                  </span>
+                </label>
+              )}
               <div className="settings-field settings-field--wide">
                 <button
                   type="button"

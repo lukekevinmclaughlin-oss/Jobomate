@@ -855,7 +855,10 @@ export class LlmConnectionManager {
       connectionType: c.connectionType,
       apiProvider: c.apiProvider,
       model: c.model,
-      // Only forward an endpoint that's actually an API URL (never a website).
+      // Forward the user's EXACT endpoint (only guard against a non-API URL like
+      // a dashboard page). No provider-specific assumptions — whatever endpoint
+      // the user configured (default, custom, or a provider-variant they chose)
+      // is what the engine uses.
       customEndpoint: isPlausibleApiEndpoint(c.customEndpoint) ? c.customEndpoint.trim() : "",
       apiKey: c.apiKey,
       localServerUrl: c.localServerUrl,
@@ -893,31 +896,15 @@ export class LlmConnectionManager {
       }
       const endpoint = isPlausibleApiEndpoint(config.customEndpoint) ? config.customEndpoint.trim() : info.url;
       const modelsEndpoint = resolveModelsEndpoint(provider, endpoint);
-      // Try to list live models, but NEVER let a failure empty the dropdown —
-      // fall back to curated/known models so the user always has a menu.
+      // Try to list live models from the user's own endpoint, but NEVER let a
+      // failure empty the dropdown — fall back to curated/known models so the
+      // user always has a menu. Provider-agnostic: no special-casing.
       let detected: DetectedModel[] = [];
       if (modelsEndpoint) {
         try {
           detected = await fetchModelList(provider, modelsEndpoint, key);
-        } catch (e) {
-          if (
-            provider === "ZAI" &&
-            isZaiCodingPlanError(e) &&
-            /\/paas\/v4/.test(modelsEndpoint) &&
-            !/\/coding\//.test(modelsEndpoint)
-          ) {
-            try {
-              detected = await fetchModelList(
-                provider,
-                modelsEndpoint.replace("/paas/v4", "/coding/paas/v4"),
-                key,
-              );
-            } catch {
-              detected = [];
-            }
-          } else {
-            detected = []; // fall through to curated list below
-          }
+        } catch {
+          detected = []; // fall through to curated list below
         }
       }
       const ids = detected.map((m) => m.id);
@@ -1428,24 +1415,7 @@ export class LlmConnectionManager {
     }
 
     const auth = apiKey && info.header ? { header: info.header, value: info.prefix + apiKey } : null;
-    try {
-      return await this.sendOpenAiCompatible(endpoint, resolvedModel(config), auth, messages, tools, options);
-    } catch (err) {
-      // Z.AI GLM Coding Plan keys are served ONLY from /coding/paas/v4; the
-      // standard PAYG endpoint answers 429 "insufficient balance" (code 1113).
-      // Transparently retry on the coding endpoint so either plan just works.
-      if (
-        config.apiProvider === "ZAI" &&
-        /\/paas\/v4/.test(endpoint) &&
-        !/\/coding\//.test(endpoint) &&
-        isZaiCodingPlanError(err) &&
-        !options.onToken // avoid retrying mid-stream
-      ) {
-        const codingEndpoint = endpoint.replace("/paas/v4", "/coding/paas/v4");
-        return await this.sendOpenAiCompatible(codingEndpoint, resolvedModel(config), auth, messages, tools, options);
-      }
-      throw err;
-    }
+    return this.sendOpenAiCompatible(endpoint, resolvedModel(config), auth, messages, tools, options);
   }
 
   private async sendOAuth(
@@ -2749,18 +2719,6 @@ function isPlausibleApiEndpoint(url: string | undefined): boolean {
   // Reject anything that ends in an HTML-ish page extension.
   if (/\.(html?|php|aspx?|jsp)$/.test(path)) return false;
   return true;
-}
-
-/** True when a Z.AI error indicates a Coding-Plan key hit the PAYG endpoint
- *  (429 / code 1113 / "insufficient balance" / "resource package"). */
-function isZaiCodingPlanError(error: unknown): boolean {
-  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
-  return (
-    msg.includes("1113") ||
-    /\b429\b/.test(msg) ||
-    msg.includes("insufficient balance") ||
-    msg.includes("resource package")
-  );
 }
 
 /**
