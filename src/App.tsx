@@ -49,7 +49,7 @@ const App: React.FC = () => {
   // User-resizable Jobomate pane (drag the divider between the browser and the panel).
   const [paneWidth, setPaneWidth] = useState(() => {
     const saved = Number(localStorage.getItem("jbm_pane_w"));
-    return saved >= 460 && saved <= 760 ? saved : 540;
+    return saved >= 380 && saved <= 1200 ? saved : 560;
   });
   const [draggingPane, setDraggingPane] = useState(false);
   const paneWidthRef = useRef(paneWidth);
@@ -61,8 +61,10 @@ const App: React.FC = () => {
     const startX = e.clientX;
     const startW = paneWidthRef.current;
     const onMove = (ev: MouseEvent) => {
-      const max = Math.min(window.innerWidth - 440, 760);
-      setPaneWidth(Math.min(Math.max(startW + (startX - ev.clientX), 440), max));
+      // Allow the hub to grow much wider (up to ~1200px / most of the window) so
+      // the chat log + composer have real room; keep the browser at least 320px.
+      const max = Math.min(window.innerWidth - 320, 1200);
+      setPaneWidth(Math.min(Math.max(startW + (startX - ev.clientX), 380), max));
     };
     const onUp = () => {
       setDraggingPane(false);

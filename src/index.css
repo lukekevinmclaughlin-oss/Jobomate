@@ -1905,8 +1905,8 @@ textarea {
    Jobomate workspace — the job-automation LLM HUB docked on the right.
    ============================================================================ */
 .app__jbm-pane {
-    width: 400px; /* default; overridden by the inline width the user drags to */
-    min-width: 300px;
+    width: 560px; /* default; overridden by the inline width the user drags to */
+    min-width: 320px;
     flex-shrink: 0;
     background: var(--bg-secondary);
     display: flex;
@@ -1916,7 +1916,7 @@ textarea {
 
 /* Draggable divider between the browser and the Jobomate panel (like a window edge). */
 .app__resizer-h {
-    width: 7px;
+    width: 10px;
     flex-shrink: 0;
     cursor: col-resize;
     background: var(--border-primary);

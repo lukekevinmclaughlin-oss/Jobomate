@@ -118,7 +118,9 @@ export const JobomatePanel: React.FC<{
   // User-resizable chat ↔ results split (drag the divider between the chat and the Jobs/Drafts list).
   const [resultsH, setResultsH] = useState(() => {
     const s = Number(localStorage.getItem("jbm_results_h"));
-    return s >= 90 && s <= 1000 ? s : 190;
+    // Keep the workbench compact by default so the chat log + composer get the
+    // room; it stays drag-resizable when the user wants a bigger pipeline view.
+    return s >= 90 && s <= 1000 ? s : 150;
   });
   const resultsHRef = useRef(resultsH);
   resultsHRef.current = resultsH;
@@ -126,7 +128,9 @@ export const JobomatePanel: React.FC<{
   // User-resizable message box (drag the divider above the composer to grow/shrink it).
   const [composerH, setComposerH] = useState(() => {
     const s = Number(localStorage.getItem("jbm_composer_h"));
-    return s >= 40 && s <= 400 ? s : 42;
+    // Reject tiny legacy heights (old default was 42px) so the composer is
+    // comfortably sized by default; the user can still drag it smaller.
+    return s >= 72 && s <= 600 ? s : 130;
   });
   const composerHRef = useRef(composerH);
   composerHRef.current = composerH;
@@ -137,7 +141,7 @@ export const JobomatePanel: React.FC<{
     const startH = composerHRef.current;
     const onMove = (ev: MouseEvent) => {
       const sec = sectionRef.current;
-      const max = sec ? Math.min(400, sec.clientHeight - 220) : 320;
+      const max = sec ? Math.min(600, sec.clientHeight - 180) : 500;
       setComposerH(
         Math.min(
           Math.max(startH + (startY - ev.clientY), 40),

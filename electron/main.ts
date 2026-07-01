@@ -1014,6 +1014,9 @@ function setupIpcHandlers(
   electron.ipcMain.handle("llmConnection:listModels", (_event, input) =>
     llmConnection.listModelsForEndpoint(input)
   );
+  electron.ipcMain.handle("llmConnection:connectionModels", (_event, input) =>
+    llmConnection.connectionModels(input)
+  );
   electron.ipcMain.handle("llmConnection:testCli", (_event, input) =>
     llmConnection.testCliCommand(input)
   );

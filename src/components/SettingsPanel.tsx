@@ -94,6 +94,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
   const [statusKind, setStatusKind] = useState<"idle" | "ok" | "error">("idle");
   const [busy, setBusy] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // "Clear browsing data" — what to wipe + progress.
   const [clearOpts, setClearOpts] = useState({ history: true, cookies: true, cache: true, siteData: false, downloads: true });
@@ -170,6 +173,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
 
   const handleProviderChange = async (provider: LlmApiProvider) => {
     updateLlmConfig("apiProvider", provider);
+    setModelOptions([]); // provider changed → previous model list no longer applies
     const defaults = await window.browserAPI?.llmConnection.providerDefaults(provider);
     setLlmConfig((prev) =>
       prev
@@ -180,6 +184,76 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
             customEndpoint: provider === "Custom" ? prev.customEndpoint : "",
           }
         : prev
+    );
+  };
+
+  // Load the connection's available models into the dropdown (uses the saved key
+  // server-side). Saves the current form first so the just-typed key/endpoint is
+  // used. Never surfaces a raw error — connectionModels returns a friendly one.
+  const loadModels = async () => {
+    if (!llmConfig || !window.browserAPI?.llmConnection) return;
+    setLoadingModels(true);
+    setStatus("Loading models…");
+    setStatusKind("idle");
+    try {
+      const saved = await window.browserAPI.llmConnection.saveConfig(llmConfig);
+      setLlmConfig(saved);
+      const res = await window.browserAPI.llmConnection.connectionModels(saved);
+      setModelOptions(res.models || []);
+      if (res.models && res.models.length > 0 && !res.models.includes(saved.model)) {
+        updateLlmConfig("model", res.models[0]);
+      }
+      setStatus(res.message || (res.ok ? "Models loaded." : "Couldn't load models."));
+      setStatusKind(res.ok ? "ok" : "error");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+      setStatusKind("error");
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  // A model chooser: a dropdown of the connection's available models + a "Load
+  // models" button. Falls back to a text input until models are loaded (or for a
+  // provider that doesn't expose a model list). `fieldKey` targets the config
+  // field to write (API/OAuth = "model", Local = "localModelName").
+  const renderModelField = (fieldKey: "model" | "localModelName", label = "Model") => {
+    if (!llmConfig) return null;
+    const current = (llmConfig[fieldKey] as string) || "";
+    const options = Array.from(
+      new Set([current, ...modelOptions].map((s) => (s || "").trim()).filter(Boolean)),
+    );
+    const write = (value: string) =>
+      setLlmConfig((prev) => (prev ? { ...prev, [fieldKey]: value } : prev));
+    return (
+      <label className="settings-field">
+        <span>{label}</span>
+        <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+          {modelOptions.length > 0 ? (
+            <select style={{ flex: 1 }} value={current} onChange={(e) => write(e.target.value)}>
+              {options.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              style={{ flex: 1 }}
+              value={current}
+              placeholder="Click “Load models”, or type a model id"
+              onChange={(e) => write(e.target.value)}
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => void loadModels()}
+            disabled={loadingModels}
+            style={{ whiteSpace: "nowrap", padding: "0 10px", cursor: loadingModels ? "default" : "pointer" }}
+          >
+            {loadingModels ? "Loading…" : "↻ Load models"}
+          </button>
+        </div>
+      </label>
     );
   };
 
@@ -308,14 +382,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
                   ))}
                 </select>
               </label>
-              <label className="settings-field">
-                <span>Model</span>
-                <input
-                  type="text"
-                  value={llmConfig.model}
-                  onChange={(event) => updateLlmConfig("model", event.target.value)}
-                />
-              </label>
+              {renderModelField("model")}
               <label className="settings-field settings-field--wide">
                 <span>API Token</span>
                 <input
@@ -325,15 +392,32 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
                   onChange={(event) => updateLlmConfig("apiKey", event.target.value)}
                 />
               </label>
-              <label className="settings-field settings-field--wide">
-                <span>Custom Endpoint</span>
-                <input
-                  type="text"
-                  value={llmConfig.customEndpoint}
-                  placeholder="Provider default"
-                  onChange={(event) => updateLlmConfig("customEndpoint", event.target.value)}
-                />
-              </label>
+              <div className="settings-field settings-field--wide">
+                <button
+                  type="button"
+                  className="settings-advanced-toggle"
+                  onClick={() => setShowAdvanced((v) => !v)}
+                  style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#6b7280", textAlign: "left" }}
+                >
+                  {showAdvanced ? "▾" : "▸"} Advanced (optional)
+                </button>
+              </div>
+              {showAdvanced && (
+                <label className="settings-field settings-field--wide">
+                  <span>Custom Endpoint</span>
+                  <input
+                    type="text"
+                    value={llmConfig.customEndpoint}
+                    placeholder="Leave blank — the provider default API URL is used"
+                    onChange={(event) => updateLlmConfig("customEndpoint", event.target.value)}
+                  />
+                  <small style={{ color: "#6b7280", marginTop: 4 }}>
+                    Optional. Leave blank for a standard provider. Only set this for a
+                    self-hosted or proxy server — it must be an API base URL (e.g.
+                    https://api.z.ai/api/paas/v4), not a website address.
+                  </small>
+                </label>
+              )}
             </div>
           )}
 
@@ -347,14 +431,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
                   onChange={(event) => updateLlmConfig("localServerUrl", event.target.value)}
                 />
               </label>
-              <label className="settings-field settings-field--wide">
-                <span>Local Model</span>
-                <input
-                  type="text"
-                  value={llmConfig.localModelName}
-                  onChange={(event) => updateLlmConfig("localModelName", event.target.value)}
-                />
-              </label>
+              {renderModelField("localModelName", "Local Model")}
             </div>
           )}
 
@@ -393,14 +470,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
                   ))}
                 </select>
               </label>
-              <label className="settings-field">
-                <span>Model</span>
-                <input
-                  type="text"
-                  value={llmConfig.model}
-                  onChange={(event) => updateLlmConfig("model", event.target.value)}
-                />
-              </label>
+              {renderModelField("model")}
               <label className="settings-field settings-field--wide">
                 <span>Client ID</span>
                 <input

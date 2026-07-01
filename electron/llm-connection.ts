@@ -835,6 +835,64 @@ export class LlmConnectionManager {
     }
   }
 
+  /**
+   * List the models available for the CURRENT saved connection so the settings
+   * UI can offer a dropdown (no typing the model name). Uses the saved API key
+   * (the form doesn't re-send it once saved), the provider's /models endpoint,
+   * and always folds in the selected model + provider default so the list is
+   * never empty. Never throws — returns a friendly message on any failure.
+   */
+  async connectionModels(input?: Partial<LlmConnectionConfig>): Promise<{
+    ok: boolean;
+    models: string[];
+    message: string;
+  }> {
+    const current = await this.loadConfig();
+    const config = input ? this.mergeConfig(current, input) : current;
+    try {
+      if (config.connectionType === "LocalServer" || config.connectionType === "LocalAI") {
+        const url = config.localServerUrl?.trim();
+        if (!url) return { ok: false, models: [], message: "Enter the local server URL first." };
+        const r = await this.listModelsForEndpoint({ url });
+        return { ok: r.ok, models: r.models.map((m) => m.id), message: r.message };
+      }
+      const provider = config.apiProvider;
+      const info = PROVIDER_INFO[provider];
+      if (!info) return { ok: false, models: [], message: "Unknown provider." };
+      const key = resolveApiKey(provider, config.apiKey);
+      if (info.requiresToken && !key) {
+        return { ok: false, models: [], message: "Save an API token first, then load models." };
+      }
+      const endpoint = isPlausibleApiEndpoint(config.customEndpoint) ? config.customEndpoint.trim() : info.url;
+      const modelsEndpoint = resolveModelsEndpoint(provider, endpoint);
+      let detected = modelsEndpoint ? await fetchModelList(provider, modelsEndpoint, key).catch((e) => {
+        // Z.AI Coding Plan: the PAYG /models 429s → retry the coding endpoint.
+        if (provider === "ZAI" && isZaiCodingPlanError(e) && /\/paas\/v4/.test(modelsEndpoint) && !/\/coding\//.test(modelsEndpoint)) {
+          return fetchModelList(provider, modelsEndpoint.replace("/paas/v4", "/coding/paas/v4"), key);
+        }
+        throw e;
+      }) : [];
+      const ids = detected.map((m) => m.id);
+      // Always include the current + provider-default model so the dropdown works
+      // even when a provider doesn't expose /models.
+      const merged = Array.from(
+        new Set([config.model, info.model, ...ids].map((s) => (s || "").trim()).filter(Boolean)),
+      );
+      if (ids.length === 0) {
+        return {
+          ok: merged.length > 0,
+          models: merged,
+          message: merged.length
+            ? "This provider doesn't list models over the API — showing known defaults. You can also type a model name."
+            : "No models available.",
+        };
+      }
+      return { ok: true, models: merged, message: `${ids.length} model(s) available.` };
+    } catch (error) {
+      return { ok: false, models: [], message: this.errorMessage(error) };
+    }
+  }
+
   // Probe a raw API key against candidate providers: detect the provider from the
   // key format, then list the account's available models from the provider's
   // /models endpoint so the settings UI can auto-fill provider, endpoint, model,
@@ -1297,7 +1355,11 @@ export class LlmConnectionManager {
     options: { connectionTest?: boolean; maxTokens?: number; requireToolUse?: boolean; onToken?: (delta: string) => void; onReasoning?: (delta: string) => void; signal?: AbortSignal }
   ): Promise<ParsedLlmResponse> {
     const info = this.providerDefaults(config.apiProvider);
-    const endpoint = config.customEndpoint.trim() || info.url;
+    // Only honour a Custom Endpoint if it's actually an API URL. A website/
+    // dashboard page (e.g. the provider's "manage API keys" page) is ignored so
+    // one bad value can't break the connection — the provider default is used.
+    const customOk = isPlausibleApiEndpoint(config.customEndpoint);
+    const endpoint = customOk ? config.customEndpoint.trim() : info.url;
     if (!endpoint) throw new Error("API endpoint is required.");
     const apiKey = resolveApiKey(config.apiProvider, config.apiKey);
     if (info.requiresToken && !apiKey) throw new Error("API token is required.");
@@ -1307,14 +1369,31 @@ export class LlmConnectionManager {
     }
 
     if (info.adapter === "google-ai") {
-      const modelEndpoint = config.customEndpoint.trim()
+      const modelEndpoint = customOk
         ? endpoint
         : `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel(config)}:generateContent`;
       return this.sendGoogle(modelEndpoint, apiKey, config, messages, tools, options);
     }
 
     const auth = apiKey && info.header ? { header: info.header, value: info.prefix + apiKey } : null;
-    return this.sendOpenAiCompatible(endpoint, resolvedModel(config), auth, messages, tools, options);
+    try {
+      return await this.sendOpenAiCompatible(endpoint, resolvedModel(config), auth, messages, tools, options);
+    } catch (err) {
+      // Z.AI GLM Coding Plan keys are served ONLY from /coding/paas/v4; the
+      // standard PAYG endpoint answers 429 "insufficient balance" (code 1113).
+      // Transparently retry on the coding endpoint so either plan just works.
+      if (
+        config.apiProvider === "ZAI" &&
+        /\/paas\/v4/.test(endpoint) &&
+        !/\/coding\//.test(endpoint) &&
+        isZaiCodingPlanError(err) &&
+        !options.onToken // avoid retrying mid-stream
+      ) {
+        const codingEndpoint = endpoint.replace("/paas/v4", "/coding/paas/v4");
+        return await this.sendOpenAiCompatible(codingEndpoint, resolvedModel(config), auth, messages, tools, options);
+      }
+      throw err;
+    }
   }
 
   private async sendOAuth(
@@ -1418,7 +1497,7 @@ export class LlmConnectionManager {
       ({ ok, status, body } = await postJson(endpoint, headers, retryPayload, options.signal));
     }
 
-    if (!ok) throw new Error(`HTTP ${status}: ${trimForDisplay(body, 600)}`);
+    if (!ok) throw new Error(httpErrorMessage(status, body));
     return parseOpenAiResponse(body);
   }
 
@@ -1605,7 +1684,7 @@ export class LlmConnectionManager {
       ({ ok, status, body } = await postJson(endpoint, headers, payload, options.signal));
     }
 
-    if (!ok) throw new Error(`HTTP ${status}: ${trimForDisplay(body, 600)}`);
+    if (!ok) throw new Error(httpErrorMessage(status, body));
     return parseAnthropicResponse(body);
   }
 
@@ -1635,7 +1714,7 @@ export class LlmConnectionManager {
     }
 
     const response = await postJson(url, { "Content-Type": "application/json" }, payload, options.signal);
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${trimForDisplay(response.body, 600)}`);
+    if (!response.ok) throw new Error(httpErrorMessage(response.status, response.body));
     return parseGoogleResponse(response.body);
   }
 
@@ -1836,6 +1915,17 @@ export class LlmConnectionManager {
     config.cliTimeout = clampNumber(config.cliTimeout, 1, 600, DEFAULT_CONFIG.cliTimeout);
     config.localAIContextSize = clampNumber(config.localAIContextSize, 512, 1_000_000, DEFAULT_CONFIG.localAIContextSize);
     config.maxToolRounds = clampNumber(config.maxToolRounds, 0, 1000, DEFAULT_CONFIG.maxToolRounds);
+    // Self-heal: a Custom Endpoint mistakenly pointed at a website/dashboard page
+    // (e.g. the provider's "manage API keys" page) for a standard provider would
+    // break every request. Clear it so the provider's default API URL is used.
+    if (
+      config.connectionType === "ApiKey" &&
+      config.apiProvider !== "Custom" &&
+      config.customEndpoint.trim() &&
+      !isPlausibleApiEndpoint(config.customEndpoint)
+    ) {
+      config.customEndpoint = "";
+    }
     return config;
   }
 
@@ -1900,7 +1990,13 @@ export class LlmConnectionManager {
   }
 
   private errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    const msg = error instanceof Error ? error.message : String(error);
+    // Final safety net: never surface a raw JSON-parse SyntaxError to the user,
+    // regardless of which provider/endpoint/key produced it.
+    if (/is not valid JSON|Unexpected token|JSON\.parse|Unexpected end of JSON/i.test(msg)) {
+      return "The endpoint didn't return a valid API response (it may be a web page or the wrong URL). For a standard provider, leave the Custom Endpoint blank so the built-in API URL is used.";
+    }
+    return msg;
   }
 }
 
@@ -2148,7 +2244,7 @@ export async function fetchModelList(
   const res = await fetch(url, { method: "GET", headers });
   const body = await res.text();
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${trimForDisplay(body, 200)}`);
+    throw new Error(httpErrorMessage(res.status, body));
   }
 
   let json: any;
@@ -2403,7 +2499,7 @@ async function requestOpenAiImage(
   const res = await fetch(plan.endpoint, { method: "POST", headers, body: JSON.stringify(body) });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${detail.slice(0, 200)}`);
+    throw new Error(httpErrorMessage(res.status, detail));
   }
   return decodeImagePayload(await res.json(), "image-api", model);
 }
@@ -2422,7 +2518,7 @@ async function requestGoogleImage(
   const res = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ instances: [{ prompt }], parameters: { sampleCount: 1, aspectRatio: aspect } }) });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${detail.slice(0, 200)}`);
+    throw new Error(httpErrorMessage(res.status, detail));
   }
   const json = (await res.json()) as any;
   const b64 = json?.predictions?.[0]?.bytesBase64Encoded;
@@ -2528,8 +2624,95 @@ function removeUndefined(value: unknown): unknown {
   return value;
 }
 
+/** True if a response body is (or begins as) an HTML document rather than JSON. */
+function looksLikeHtml(body: string): boolean {
+  const head = body.trimStart().slice(0, 512).toLowerCase();
+  return (
+    head.startsWith("<!doctype") ||
+    head.startsWith("<html") ||
+    head.startsWith("<head") ||
+    head.startsWith("<?xml") ||
+    (head.startsWith("<") && head.includes("<body")) ||
+    head.includes("<title>")
+  );
+}
+
+/**
+ * Parse an API response body as JSON, but turn the cryptic
+ * "Unexpected token '<', "<!DOCTYPE"... is not valid JSON" SyntaxError into a
+ * clear, actionable message. This is the universal safety net so that NO
+ * provider/endpoint/key combination can ever surface a raw JSON parse error:
+ * a web page (or any non-JSON) response yields a human explanation instead.
+ */
+function parseJsonBody(body: string, _label = "response"): Record<string, unknown> {
+  try {
+    return JSON.parse(body) as Record<string, unknown>;
+  } catch {
+    if (looksLikeHtml(body)) {
+      throw new Error(
+        "The endpoint returned a web page, not an API response. Clear the Custom Endpoint so the provider's built-in API URL is used — a Custom Endpoint must be an API base URL (e.g. https://api.z.ai/api/paas/v4), not a website address.",
+      );
+    }
+    throw new Error(
+      "The endpoint replied with something that isn't valid JSON — it's likely the wrong URL or a proxy/login page. Check the provider and Custom Endpoint (leave Custom Endpoint blank for standard providers).",
+    );
+  }
+}
+
+/**
+ * Build a user-facing message for a non-OK HTTP response WITHOUT dumping a raw
+ * HTML error page (e.g. "HTTP 404: <!DOCTYPE html>…") into the UI. Complements
+ * parseJsonBody so neither success nor failure paths can leak markup.
+ */
+function httpErrorMessage(status: number, body: string): string {
+  if (looksLikeHtml(body)) {
+    return `The endpoint returned a web page (HTTP ${status}), not an API response — the URL is probably wrong. Clear the Custom Endpoint so the provider's default API URL is used (it must be an API URL, not a website).`;
+  }
+  const trimmed = trimForDisplay(body, 300).trim();
+  return `HTTP ${status}${trimmed ? `: ${trimmed}` : ""}`;
+}
+
+/**
+ * A Custom Endpoint is only honoured if it looks like an API endpoint — not a
+ * website/console/dashboard page. This prevents the most common setup mistake:
+ * pasting the provider's "manage API keys" page (e.g.
+ * https://z.ai/manage-apikey/apikey-list) into the endpoint field, which then
+ * returns an HTML page for every request.
+ */
+function isPlausibleApiEndpoint(url: string | undefined): boolean {
+  const u = (url || "").trim();
+  if (!u) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(u);
+  } catch {
+    return false;
+  }
+  if (!/^https?:$/.test(parsed.protocol)) return false;
+  const path = parsed.pathname.toLowerCase();
+  // Reject obvious human-facing pages (account/console/dashboard/etc.).
+  if (/(manage|apikey|api-key|api_keys|dashboard|console|account|login|sign-?in|pricing|billing|\/docs|\/help|settings|profile)/.test(path)) {
+    return false;
+  }
+  // Reject anything that ends in an HTML-ish page extension.
+  if (/\.(html?|php|aspx?|jsp)$/.test(path)) return false;
+  return true;
+}
+
+/** True when a Z.AI error indicates a Coding-Plan key hit the PAYG endpoint
+ *  (429 / code 1113 / "insufficient balance" / "resource package"). */
+function isZaiCodingPlanError(error: unknown): boolean {
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    msg.includes("1113") ||
+    /\b429\b/.test(msg) ||
+    msg.includes("insufficient balance") ||
+    msg.includes("resource package")
+  );
+}
+
 function parseOpenAiResponse(body: string): ParsedLlmResponse {
-  const raw = JSON.parse(body) as Record<string, unknown>;
+  const raw = parseJsonBody(body, "chat completion");
   const choices = Array.isArray(raw.choices) ? raw.choices : [];
   const first = choices[0] as { message?: Record<string, unknown> } | undefined;
   const message = first?.message || {};
@@ -2555,7 +2738,7 @@ function parseOpenAiResponse(body: string): ParsedLlmResponse {
 }
 
 function parseAnthropicResponse(body: string): ParsedLlmResponse {
-  const raw = JSON.parse(body) as Record<string, unknown>;
+  const raw = parseJsonBody(body, "anthropic message");
   const blocks = Array.isArray(raw.content) ? raw.content : [];
   const text: string[] = [];
   const toolCalls: ParsedToolCall[] = [];
@@ -2582,7 +2765,7 @@ function parseAnthropicResponse(body: string): ParsedLlmResponse {
 }
 
 function parseGoogleResponse(body: string): ParsedLlmResponse {
-  const raw = JSON.parse(body) as Record<string, unknown>;
+  const raw = parseJsonBody(body, "google response");
   const candidates = Array.isArray(raw.candidates) ? raw.candidates : [];
   const first = candidates[0] as { content?: { parts?: unknown[] } } | undefined;
   const parts = Array.isArray(first?.content?.parts) ? first!.content!.parts! : [];

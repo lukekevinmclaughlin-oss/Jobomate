@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld("browserAPI", {
     discoverLocal: () => ipcRenderer.invoke("llmConnection:discoverLocal"),
     listModels: (input: { url: string; apiKey?: string }) =>
       ipcRenderer.invoke("llmConnection:listModels", input),
+    connectionModels: (input?: unknown) =>
+      ipcRenderer.invoke("llmConnection:connectionModels", input),
     testCli: (input: { command: string; timeout?: number }) =>
       ipcRenderer.invoke("llmConnection:testCli", input),
     providerDefaults: (provider: string) =>

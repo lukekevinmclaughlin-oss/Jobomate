@@ -270,6 +270,9 @@ interface BrowserAPI {
       url: string;
       apiKey?: string;
     }) => Promise<{ ok: boolean; models: DetectedModel[]; message: string }>;
+    connectionModels: (
+      input?: Partial<LlmConnectionConfig>
+    ) => Promise<{ ok: boolean; models: string[]; message: string }>;
     testCli: (input: {
       command: string;
       timeout?: number;
