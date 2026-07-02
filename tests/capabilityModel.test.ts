@@ -85,20 +85,24 @@ describe("capability model — grounded in real code", () => {
   });
 
   it("only claims 'implemented'/'partial' where a real tool or module backs it", () => {
-    // Browser use and git workflows are the two fully implemented, tool-backed rows.
     expect(getCapability("browser-use")?.status).toBe("implemented");
     expect(getCapability("git-workflows")?.status).toBe("implemented");
     expect(getCapability("safety-controls")?.status).toBe("implemented");
-    // This shell still ships no in-harness file editor, so that row stays planned.
-    for (const id of ["file-editing"]) {
-      expect(getCapability(id)?.status).toBe("planned");
-      expect(getCapability(id)?.tools.length).toBe(0);
+    // The coding-harness core: every row is backed by real, dispatchable tools.
+    for (const id of [
+      "codebase-access",
+      "file-editing",
+      "app-creation",
+      "planning",
+      "software-execution",
+      "document-creation",
+      "memory-context",
+    ]) {
+      expect(getCapability(id)?.status, id).toBe("implemented");
+      expect(getCapability(id)?.tools.length, id).toBeGreaterThan(0);
     }
-    // These were planned in the base shell but are now backed by real tools.
-    for (const id of ["software-execution", "document-creation"]) {
-      expect(getCapability(id)?.status).toBe("implemented");
-      expect(getCapability(id)?.tools.length).toBeGreaterThan(0);
-    }
+    // No editor/LSP surface here, so IDE support stays honestly planned.
+    expect(getCapability("ide-support")?.status).toBe("planned");
   });
 });
 

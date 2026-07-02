@@ -7,6 +7,7 @@ import * as path from "path";
 import type { BrowserController } from "./llm-server";
 import { extractAttachments, buildAttachmentContext, type AttachmentInput } from "./attachments";
 import { extraToolDefinitions, dispatchExtraTool, hasExtraTool } from "./tools/dispatch";
+import { getWorkspaceDir } from "./tools/fileTools";
 import type { ToolContext } from "./tools/types";
 import { harnessSystemPromptLine } from "./harness/capabilityModel";
 
@@ -596,10 +597,18 @@ interface LocalRuntimeProbe {
 const LOCAL_RUNTIME_PROBES: LocalRuntimeProbe[] = [
   { runtime: "Ollama", baseUrl: "http://127.0.0.1:11434", modelsPath: "/v1/models", nativePath: "/api/tags" },
   { runtime: "LM Studio", baseUrl: "http://127.0.0.1:1234", modelsPath: "/v1/models" },
-  { runtime: "llama.cpp", baseUrl: "http://127.0.0.1:8080", modelsPath: "/v1/models" },
+  // 8080 is shared by llama.cpp/llamafile/LocalAI/mlx-server — all expose
+  // /v1/models, so the generic label keeps the detection honest.
+  { runtime: "llama.cpp / LocalAI (port 8080)", baseUrl: "http://127.0.0.1:8080", modelsPath: "/v1/models" },
+  // 8000 is shared by vLLM/Lemonade/generic uvicorn OpenAI servers.
+  { runtime: "vLLM / OpenAI-compatible (port 8000)", baseUrl: "http://127.0.0.1:8000", modelsPath: "/v1/models" },
   { runtime: "KoboldCpp", baseUrl: "http://127.0.0.1:5001", modelsPath: "/v1/models" },
   { runtime: "Text Generation WebUI", baseUrl: "http://127.0.0.1:5000", modelsPath: "/v1/models" },
   { runtime: "LiteLLM", baseUrl: "http://127.0.0.1:4000", modelsPath: "/v1/models" },
+  { runtime: "Jan", baseUrl: "http://127.0.0.1:1337", modelsPath: "/v1/models" },
+  { runtime: "GPT4All", baseUrl: "http://127.0.0.1:4891", modelsPath: "/v1/models" },
+  { runtime: "Xinference", baseUrl: "http://127.0.0.1:9997", modelsPath: "/v1/models" },
+  { runtime: "Foundry Local", baseUrl: "http://127.0.0.1:5273", modelsPath: "/v1/models" },
   { runtime: "Docker Model Runner", baseUrl: "http://127.0.0.1:12434", modelsPath: "/v1/models" },
 ];
 
@@ -643,7 +652,8 @@ export class LlmConnectionManager {
   // host wired an approval gate, default-allow so the loop still functions.
   private toolContext(): ToolContext {
     return {
-      cwd: os.homedir(),
+      // The session workspace (set_workspace) wins; otherwise the home dir.
+      cwd: getWorkspaceDir() ?? os.homedir(),
       approve: this.host?.approve ?? (async () => true),
       openSidecar: this.host?.openSidecar ?? (() => {}),
       llmComplete: async (msgs) => {
@@ -1871,11 +1881,21 @@ export class LlmConnectionManager {
       "If the user's request is ambiguous or missing a key detail, call ask_user to ask ONE concise clarifying question instead of guessing. " +
       "When the user attaches files, their extracted text is included in the user's message between FILE markers — read it and use it as context for the task. " +
       "Never claim a browser action succeeded unless a tool result confirms it. " +
-      "Beyond the browser, you also have a GitHub toolkit (github_auth_status / github_clone / github_status / " +
-      "github_log / github_diff / github_commit / github_branch / github_sync / github_pr / github_checks / " +
-      "github_issue / github_api) for working with git repos and the GitHub platform — read-only ops run freely, " +
-      "side-effecting ops (commit/push/PR writes) ask the user for approval first. Call describe_harness to see " +
-      "exactly which capabilities and tools you have. Available tools: " +
+      "Beyond the browser, you are a full software-engineering agent with a real harness:\n" +
+      "- Files: set_workspace FIRST when working on a project, then list_dir / glob_files / grep_search / read_file " +
+      "to explore, write_file / edit_file to change code (edits are checkpointed; list_file_changes / diff_file_change / " +
+      "undo_file_change give you diff awareness and recovery).\n" +
+      "- Execution: exec for one-shot shell commands (builds, tests, package managers, scaffolding CLIs), " +
+      "run_python / run_node for snippets, start_process + wait_for_server + process_output + stop_process for dev " +
+      "servers and other long-running processes.\n" +
+      "- Planning: todo_write / todo_update / todo_read to decompose multi-step work and keep the plan across rounds.\n" +
+      "- Git/GitHub: github_auth_status / github_clone / github_status / github_log / github_diff / github_commit / " +
+      "github_branch / github_sync / github_pr / github_checks / github_issue / github_api.\n" +
+      "Read-only ops run freely; side-effecting ops (writes, commands, commits) ask the user for approval first. " +
+      "To build or debug software: set the workspace, explore with search/read tools, make targeted edits, then " +
+      "VERIFY by running the project's build/tests via exec (or a dev server via start_process) — never claim code " +
+      "works without running it. Call describe_harness to see exactly which capabilities and tools you have. " +
+      "Available tools: " +
       toolNames +
       ".\n\n" +
       harnessSystemPromptLine();

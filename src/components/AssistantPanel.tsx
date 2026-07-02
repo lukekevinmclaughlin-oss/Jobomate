@@ -17,6 +17,24 @@ interface PendingAttachment {
   path: string;
 }
 
+// One-line human summary of a tool call for the activity feed / details list:
+// the tool name plus its most identifying argument (path, command, url, ...).
+const summarizeToolRun = (run: AssistantToolRun): string => {
+  const args = run.arguments || {};
+  const keyArg =
+    ["path", "file", "command", "url", "pattern", "from", "selector", "id", "question", "message"]
+      .map((key) => args[key])
+      .find((value) => typeof value === "string" && value.length > 0) as string | undefined;
+  const detail = keyArg ? ` ${keyArg}` : "";
+  return `${run.name}${detail}`.slice(0, 110);
+};
+
+const previewToolResult = (result: unknown): string => {
+  const text = typeof result === "string" ? result : JSON.stringify(result);
+  if (!text) return "";
+  return text.length > 240 ? `${text.slice(0, 237)}...` : text;
+};
+
 const formatAttachmentSize = (bytes: number): string => {
   if (!Number.isFinite(bytes) || bytes <= 0) return "";
   const units = ["B", "KB", "MB", "GB"];
@@ -37,6 +55,9 @@ export const AssistantPanel: React.FC = () => {
   // box, both streamed in real time from the engine.
   const [streamingText, setStreamingText] = useState("");
   const [reasoning, setReasoning] = useState("");
+  // Live tool activity for the in-flight run (what the agent is doing NOW).
+  const [liveTools, setLiveTools] = useState<string[]>([]);
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const sendingRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
   const reasoningRef = useRef<HTMLDivElement>(null);
@@ -53,10 +74,12 @@ export const AssistantPanel: React.FC = () => {
     const offReason = api?.assistant.onReasoning?.(({ delta }) => {
       if (sendingRef.current) setReasoning((prev) => prev + delta);
     });
-    const offTool = api?.assistant.onToolRun?.(() => {
+    const offTool = api?.assistant.onToolRun?.((run) => {
       if (sendingRef.current) {
         setStreamingText("");
         setReasoning("");
+        const summary = summarizeToolRun(run as AssistantToolRun);
+        setLiveTools((prev) => [...prev.slice(-11), summary]);
       }
     });
     return () => {
@@ -195,6 +218,7 @@ export const AssistantPanel: React.FC = () => {
     sendingRef.current = true;
     setReasoning("");
     setStreamingText("");
+    setLiveTools([]);
 
     const sendOnce = () =>
       window.browserAPI?.assistant.send({
@@ -299,9 +323,40 @@ export const AssistantPanel: React.FC = () => {
                 </div>
               )}
               {message.toolRuns && message.toolRuns.length > 0 && (
-                <div className="assistant-message__tools">
-                  <Wrench size={12} />
-                  <span>{message.toolRuns.length} browser tool run{message.toolRuns.length === 1 ? "" : "s"}</span>
+                <div className="assistant-message__toolblock">
+                  <button
+                    type="button"
+                    className="assistant-message__tools"
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "inherit" }}
+                    onClick={() =>
+                      setExpandedTools((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(message.id)) next.delete(message.id);
+                        else next.add(message.id);
+                        return next;
+                      })
+                    }
+                    title="Show what the agent did"
+                  >
+                    <Wrench size={12} />
+                    <span>
+                      {expandedTools.has(message.id) ? "▾" : "▸"} {message.toolRuns.length} tool run{message.toolRuns.length === 1 ? "" : "s"}
+                    </span>
+                  </button>
+                  {expandedTools.has(message.id) && (
+                    <ol className="assistant-message__toollist" style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 11.5, opacity: 0.85 }}>
+                      {message.toolRuns.map((run, index) => (
+                        <li key={index} style={{ marginBottom: 2 }}>
+                          <code>{summarizeToolRun(run)}</code>
+                          {previewToolResult(run.result) && (
+                            <div style={{ opacity: 0.75, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                              {previewToolResult(run.result)}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                 </div>
               )}
             </div>
@@ -314,6 +369,13 @@ export const AssistantPanel: React.FC = () => {
             </div>
             <div className="assistant-message__body">
               <p>{stripReasoning(streamingText) || "Working..."}</p>
+              {liveTools.length > 0 && (
+                <div className="assistant-message__live-tools" style={{ marginTop: 4, fontSize: 11.5, opacity: 0.8 }}>
+                  <Wrench size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />
+                  <code>{liveTools[liveTools.length - 1]}</code>
+                  {liveTools.length > 1 && <span> · {liveTools.length} tool calls</span>}
+                </div>
+              )}
             </div>
           </div>
         )}

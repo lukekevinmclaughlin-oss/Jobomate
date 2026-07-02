@@ -35,16 +35,30 @@ In Jobomate specifically:
   [`electron/llm-connection.ts`](../electron/llm-connection.ts) /
   [`electron/llm-server.ts`](../electron/llm-server.ts).
 - The harness is everything else: the browser bridge tools in
-  `llm-connection.ts`, the ported tool modules under
-  [`electron/tools/`](../electron/tools) (the GitHub toolkit + the
-  `describe_harness` introspection tool), the approval gate wired in
-  [`electron/main.ts`](../electron/main.ts), and the attachment context in
-  [`electron/attachments.ts`](../electron/attachments.ts).
+  `llm-connection.ts`, the tool modules under
+  [`electron/tools/`](../electron/tools) (files, exec, background processes,
+  task state, GitHub, web, documents, research, memory, subagents, schedules,
+  verification, connectors + the `describe_harness` introspection tool), the
+  approval gate wired in [`electron/main.ts`](../electron/main.ts), the
+  sensitive-path / SSRF policies in
+  [`electron/security/policy.ts`](../electron/security/policy.ts), and the
+  attachment context in [`electron/attachments.ts`](../electron/attachments.ts).
 
-Jobomate is a **browser-automation shell**: it ships the ~20 `browser_*` tools
-and (now) the purpose-built `github_*` toolkit, but it has **no** dedicated
-file / exec / web / document tools — so several rows in the matrix below are
-honestly **planned**, not implemented.
+Jobomate ships the full **coding-harness core** on top of its browser shell:
+
+- **Workspace + files** — `set_workspace` pins the project root;
+  `list_dir` / `glob_files` / `grep_search` / `read_file` / `file_info` explore
+  it; `write_file` / `edit_file` / `make_dir` / `move_path` / `copy_path` /
+  `delete_path` change it. Every mutation snapshots the previous content, so
+  `list_file_changes` / `diff_file_change` / `undo_file_change` provide diff
+  awareness and one-step recovery ([`electron/tools/fileTools.ts`](../electron/tools/fileTools.ts)).
+- **Execution** — `exec` for one-shot shell commands, `run_python` / `run_node`
+  for snippets, `python_session` for a stateful kernel, and
+  `start_process` / `process_output` / `stop_process` / `list_processes` /
+  `wait_for_server` for dev servers and other long-running processes
+  ([`electron/tools/processTools.ts`](../electron/tools/processTools.ts)).
+- **Task state** — `todo_write` / `todo_update` / `todo_read` keep a plan alive
+  across tool rounds ([`electron/tools/taskTools.ts`](../electron/tools/taskTools.ts)).
 
 ## Capability matrix
 
@@ -55,42 +69,43 @@ tools that realise it. Statuses: **implemented** (first-class today), **partial*
 
 | Capability | Harness mechanism | What it enables | Status | Tools |
 | --- | --- | --- | --- | --- |
-| Codebase access | File read, search, glob, repo indexing | Inspect real projects, understand architecture, trace dependencies. | planned | — |
-| File editing | Write/edit tools, diffs, checkpoints | Create, modify, refactor, or revert files safely. | planned | — |
-| Software execution | Shell, task runner, build/test commands | Run tests, install packages, build apps, inspect logs. | planned | — |
-| App creation | File tools + terminal + preview/browser | Build full apps, launch dev servers, verify UI, iterate on failures. | planned | `browser_navigate` |
-| Planning | Agentic loop, approval gates, task tracking | Explore before acting, break work into steps, execute with checkpoints. | implemented | — |
-| Document creation | File generation, document libraries, render/export tools | Produce Markdown, HTML, PDFs, spreadsheets, slide decks, reports, docs. | planned | — |
+| Codebase access | File read, search, glob, workspace, repo indexing | Inspect real projects, understand architecture, trace dependencies. | implemented | `set_workspace`, `get_workspace`, `list_dir`, `glob_files`, `grep_search`, `read_file`, `file_info` |
+| File editing | Write/edit tools, diffs, checkpoints | Create, modify, refactor, or revert files safely. | implemented | `write_file`, `edit_file`, `make_dir`, `move_path`, `copy_path`, `delete_path`, `list_file_changes`, `diff_file_change`, `undo_file_change` |
+| Software execution | Shell, task runner, build/test commands, stateful kernel | Run tests, install packages, build apps, inspect logs, iterate on data. | implemented | `exec`, `run_python`, `run_node`, `python_session` |
+| App creation | File tools + terminal + dev-server control + in-app browser | Build full apps, launch dev servers, verify UI, iterate on failures. | implemented | `start_process`, `process_output`, `stop_process`, `list_processes`, `wait_for_server`, `browser_navigate` |
+| Planning | Agentic loop, approval gates, task tracking | Explore before acting, break work into steps, execute with checkpoints. | implemented | `todo_write`, `todo_update`, `todo_read` |
+| Document creation & editing | Document libraries (pdf-lib/docx/pptx/xlsx), HTML→PDF, charts, diagrams | Produce and edit designed PDFs/Word/PowerPoint/Excel, charts, diagrams, mail-merge. | implemented | `write_pdf`, `write_docx`, `write_pptx`, `write_xlsx`, `edit_pdf`, `read_pdf`, `render_html_pdf`, `generate_chart`, `generate_diagram`, `merge_template`, `generate_image` |
+| Image generation | Provider diffusion image APIs with an offline procedural fallback | Create images from text and embed them into documents. | implemented | `generate_image` |
+| Deep research | Multi-query web search + source fetching + cited synthesis loop | Investigate a topic across many sources; produce a structured, cited report. | implemented | `deep_research`, `web_search`, `web_fetch` |
+| Semantic memory / RAG | Vector store with provider or local embeddings, persisted across sessions | Remember facts long-term and retrieve relevant context from indexed files. | implemented | `remember`, `recall`, `index_files`, `memory_list`, `memory_forget` |
+| Code interpreter (stateful) | Persistent Python kernel with a shared namespace | Iterative data analysis where variables persist across cells. | implemented | `python_session`, `run_python`, `run_node` |
+| Multimodal I/O | Text-to-speech, OCR, and speech-to-text | Speak responses, read text from images/scans, transcribe audio. | partial | `text_to_speech`, `ocr_image`, `transcribe_audio` |
+| Self-verification & evaluation | Batch code checks + web-grounded claim checking | Confirm code actually works (tests/lint/typecheck/build); fact-check statements. | implemented | `verify_code`, `verify_claims` |
 | Browser use | Web search, page fetch, browser automation | Search, read pages, interact with web apps, fill forms, test UIs. | implemented | `browser_navigate`, `browser_click`, `browser_fill`, `browser_type`, `browser_get_text`, `browser_snapshot` |
-| Desktop automation | Screen capture, mouse/keyboard control, app automation | Use native apps, operate GUIs, test desktop workflows. | partial | `browser_take_screenshot`, `browser_type`, `browser_press_key`, `browser_cdp` |
+| Desktop automation | Screen capture, mouse/keyboard control, app automation | Use native apps, operate GUIs, test desktop workflows. | implemented | `screen_capture`, `screen_size`, `open_app`, `type_text`, `press_keys`, `mouse_click`, `browser_take_screenshot` |
 | Advanced prompt interpretation | System prompts, project rules, skills, tool schemas | Convert broad user intent into structured actions and workflows. | implemented | — |
-| RAG-style grounding | File search, external docs, MCP/resources, databases | Retrieve relevant context from repos, docs, tickets, wikis, APIs. | partial | `browser_get_text`, `github_diff`, `github_log` |
-| External integrations | MCP servers, plugins, custom connectors | Connect to GitHub, Jira, Slack, databases, cloud providers, internal tools. | partial | `github_pr`, `github_api` |
+| RAG-style grounding | File search, external docs, MCP/resources, databases | Retrieve relevant context from repos, docs, tickets, wikis, APIs. | implemented | `web_search`, `web_fetch`, `recall`, `index_files`, `browser_get_text`, `github_diff`, `github_log` |
+| External integrations | MCP servers, plugins, custom connectors | Connect to GitHub, Jira, Slack, databases, cloud providers, internal tools. | implemented | `github_pr`, `github_api`, `http_request`, `send_email`, `calendar_add`, `sql_query` |
 | IDE support | Editor extensions, diagnostics, LSP context | Use selected code, errors, symbols, references, inline diffs. | planned | — |
-| Git workflows | Git commands, PR tools, CI inspection | Commit, branch, review diffs, open PRs, fix failing checks. | implemented | `github_commit`, `github_branch`, `github_sync`, `github_pr`, `github_checks`, … |
-| Subagents | Separate worker agents with scoped context/tools | Parallelize review, research, implementation, testing, migration tasks. | planned | — |
-| Memory/context | Project instruction files, summaries, persistent notes | Remember project conventions, compress long sessions, preserve state. | partial | — |
-| Hooks/automation | Pre/post tool hooks, scheduled jobs, monitors | Run formatters, enforce policies, trigger tasks, watch for events. | planned | — |
+| Git workflows | Git commands, PR tools, CI inspection | Commit, branch, review diffs, open PRs, fix failing checks. | implemented | `github_clone`, `github_status`, `github_log`, `github_diff`, `github_commit`, `github_branch`, `github_sync`, `github_pr`, `github_checks`, `github_issue`, `github_api`, `github_auth_status` |
+| Subagents | Parallel scoped worker completions + coordinator synthesis | Parallelize review, research, implementation, analysis. | implemented | `spawn_subagents` |
+| Memory/context | Project instruction files, summaries, persistent notes, semantic store | Remember project conventions, compress long sessions, preserve state. | implemented | `remember`, `recall`, `memory_list`, `memory_forget` |
+| Hooks/automation | Pre/post tool hooks + scheduled & recurring jobs | Run formatters, enforce policies, trigger one-shot or recurring tasks. | implemented | `schedule_task`, `list_schedules`, `cancel_schedule` |
 | Safety controls | Permissions, sandboxing, allow/deny rules | Limit what the agent can read, edit, run, browse, or automate. | implemented | — |
-| Runtime environments | Local machine, remote server, cloud VM, container | Execute work in the right environment with the right dependencies. | partial | — |
+| Runtime environments | Local machine, remote server, cloud VM, container | Execute work in the right environment with the right dependencies. | partial | `exec`, `run_python`, `run_node`, `python_session`, `start_process`, `wait_for_server` |
 
 ### Where the matrix is honest about the gap
 
-- **Planned (no dedicated tool here yet):** codebase access, file editing,
-  software execution, app creation, document creation, IDE support, subagents,
-  hooks/automation. Jobomate is a browser-automation shell; these would need
-  file / exec / document tools it does not ship. The git toolkit can show
-  diffs / log and commit, but there is no general read / write / shell tool.
-- **Desktop automation** — scoped to the in-app browser surface (screenshot,
-  synthetic input, CDP), not arbitrary native OS apps.
-- **RAG-style grounding** — attachment extraction + live page text + git
-  history/diffs; no vector store or MCP/resource servers yet.
-- **External integrations** — native GitHub only (git + the `gh` CLI); no MCP,
-  Jira, Slack, or other connectors yet.
-- **Memory/context** — persisted custom system prompt + a rolling history window
-  + attachment context; no long-term vector/summary memory store yet.
-- **Runtime environments** — runs on the local machine and spawns local
-  `git`/`gh`; no remote/VM/container execution targets.
+- **IDE support** — no editor/LSP/diagnostics surface in this shell.
+- **Multimodal I/O** — TTS/OCR/transcription lean on macOS-native helpers and
+  degrade on other platforms.
+- **Runtime environments** — runs on the local machine (with a persistent
+  Python kernel and managed background processes); no remote/VM/container
+  execution targets are built in.
+- **Safety controls** — every side-effecting tool (file writes/deletes, exec,
+  process control, commits/pushes, PR/issue writes) clears the user approval
+  gate; file tools refuse sensitive paths (`~/.ssh`, keychains, wallets);
+  `web_fetch` has an SSRF guard; git/gh are spawned via argv only.
 
 ### GitHub toolkit
 

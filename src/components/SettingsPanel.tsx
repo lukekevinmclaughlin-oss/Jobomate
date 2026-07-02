@@ -217,6 +217,85 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
     }
   };
 
+  // Auto-detect provider/endpoint/model from the typed API key — the same probe
+  // the setup wizard uses, so the settings form is never worse than the wizard.
+  const detectFromKey = async () => {
+    if (!llmConfig || !window.browserAPI?.llmConnection) return;
+    const key = (llmConfig.apiKey || "").trim();
+    if (!key) {
+      setStatus("Type or paste the API key first, then Detect.");
+      setStatusKind("error");
+      return;
+    }
+    setBusy(true);
+    setStatus("Detecting provider and models from the key…");
+    setStatusKind("idle");
+    try {
+      const res = await window.browserAPI.llmConnection.probeApiKey({ apiKey: key });
+      if (res?.ok && res.provider) {
+        setLlmConfig((prev) =>
+          prev
+            ? {
+                ...prev,
+                connectionType: "ApiKey",
+                apiProvider: res.provider as LlmApiProvider,
+                model: res.recommendedModel || prev.model,
+                customEndpoint: "",
+              }
+            : prev
+        );
+        setModelOptions((res.models || []).map((m: { id: string }) => m.id));
+        setStatus(res.message || `Detected ${res.provider}.`);
+        setStatusKind("ok");
+      } else {
+        setStatus(res?.message || "Couldn't detect a provider from this key.");
+        setStatusKind("error");
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+      setStatusKind("error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Scan localhost for running LLM runtimes (Ollama, LM Studio, llama.cpp, vLLM,
+  // Jan, …) and fill the Local Server form with the first hit.
+  const scanLocalServers = async () => {
+    if (!window.browserAPI?.llmConnection) return;
+    setBusy(true);
+    setStatus("Scanning localhost for running model servers…");
+    setStatusKind("idle");
+    try {
+      const found = (await window.browserAPI.llmConnection.discoverLocal()) || [];
+      if (found.length === 0) {
+        setStatus("No local model server found. Start Ollama / LM Studio / llama.cpp (or any OpenAI-compatible server) and scan again.");
+        setStatusKind("error");
+      } else {
+        const first = found[0];
+        setLlmConfig((prev) =>
+          prev
+            ? {
+                ...prev,
+                connectionType: "LocalServer",
+                localServerUrl: first.chatUrl,
+                localModelName: first.models[0]?.id || prev.localModelName || "local-model",
+              }
+            : prev
+        );
+        setModelOptions(first.models.map((m) => m.id));
+        const others = found.length > 1 ? ` (+${found.length - 1} more runtime(s) found — Load models after changing the URL)` : "";
+        setStatus(`Found ${first.runtime} at ${first.baseUrl} with ${first.models.length} model(s)${others}. Click Connect to finish.`);
+        setStatusKind("ok");
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+      setStatusKind("error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // A model chooser: a dropdown of the connection's available models + a "Load
   // models" button. Falls back to a text input until models are loaded (or for a
   // provider that doesn't expose a model list). `fieldKey` targets the config
@@ -389,12 +468,24 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
               {renderModelField("model")}
               <label className="settings-field settings-field--wide">
                 <span>API Token</span>
-                <input
-                  type="password"
-                  value={llmConfig.apiKey}
-                  placeholder={secretPlaceholder}
-                  onChange={(event) => updateLlmConfig("apiKey", event.target.value)}
-                />
+                <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                  <input
+                    type="password"
+                    style={{ flex: 1 }}
+                    value={llmConfig.apiKey}
+                    placeholder={secretPlaceholder}
+                    onChange={(event) => updateLlmConfig("apiKey", event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void detectFromKey()}
+                    disabled={busy || !llmConfig.apiKey.trim()}
+                    title="Auto-detect the provider, endpoint and models from this key"
+                    style={{ whiteSpace: "nowrap", padding: "0 10px", cursor: busy ? "default" : "pointer" }}
+                  >
+                    🪄 Detect
+                  </button>
+                </div>
               </label>
               {llmConfig.apiProvider === "ZAI" && (
                 <label className="settings-field settings-field--wide" style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
@@ -443,6 +534,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
 
           {llmConfig && activeType === "LocalServer" && (
             <div className="settings-grid">
+              <div className="settings-field settings-field--wide">
+                <button
+                  type="button"
+                  onClick={() => void scanLocalServers()}
+                  disabled={busy}
+                  style={{ alignSelf: "flex-start", padding: "6px 12px", cursor: busy ? "default" : "pointer" }}
+                >
+                  {busy ? "Scanning…" : "🔍 Scan for local servers"}
+                </button>
+                <small style={{ color: "#6b7280", marginTop: 4 }}>
+                  Finds Ollama, LM Studio, llama.cpp, vLLM, Jan, GPT4All, KoboldCpp and any other
+                  OpenAI-compatible server running on this machine, and fills in the URL and model.
+                </small>
+              </div>
               <label className="settings-field settings-field--wide">
                 <span>Local Server URL</span>
                 <input

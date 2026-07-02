@@ -4,6 +4,9 @@
 
 import { githubToolsModule } from "./githubTools";
 import { harnessToolsModule } from "./harnessTools";
+import { fileToolsModule } from "./fileTools";
+import { processToolsModule } from "./processTools";
+import { taskToolsModule } from "./taskTools";
 import { artifactWriterModule } from "./artifactWriter";
 import { imageGeneratorModule } from "./imageGenerator";
 import { webToolsModule } from "./webTools";
@@ -23,6 +26,10 @@ import type { ToolContext, LlmToolDefinition, ToolModule } from "./types";
 const MODULES: ToolModule[] = [
   githubToolsModule,
   harnessToolsModule,
+  // Core coding-harness primitives: files, background processes, task state.
+  fileToolsModule,
+  processToolsModule,
+  taskToolsModule,
   // Frontier harness layers (Tiers 1–3).
   webToolsModule,
   execToolsModule,

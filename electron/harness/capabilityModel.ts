@@ -19,9 +19,10 @@
 // introspect its own harness), the system-prompt grounding line, and
 // docs/HARNESS_MODEL.md.
 //
-// Jobomate is a browser-automation shell: it ships the ~20 browser_* tools and
-// (now) the purpose-built github_* toolkit, but it has NO dedicated
-// file/exec/web/document tools — so several rows below are honestly "planned".
+// Jobomate ships the ~20 browser_* tools, the github_* toolkit, and the full
+// coding-harness core: file tools (read/search/edit with checkpoints), exec +
+// background process control, task state, web/document/research tools. Rows
+// that remain unbuilt here (e.g. IDE/LSP support) stay honestly "planned".
 //
 // Pure and dependency-free (no Electron imports) so it stays unit-testable and
 // can be consumed from both the main process and tests.
@@ -130,22 +131,32 @@ export const CAPABILITIES: readonly Capability[] = [
   {
     id: "codebase-access",
     capability: "Codebase access",
-    mechanism: "File read, search, glob, repo indexing",
+    mechanism: "File read, search, glob, workspace, repo indexing",
     enables: "Inspect real projects, understand architecture, trace dependencies.",
-    tools: [],
-    modules: ["electron/tools/githubTools.ts"],
-    status: "planned",
-    note: "No dedicated file read/search/glob tools in this browser-automation shell. The git toolkit can show diffs/log, but there is no general read_file/grep/glob here yet.",
+    tools: ["set_workspace", "get_workspace", "list_dir", "glob_files", "grep_search", "read_file", "file_info"],
+    modules: ["electron/tools/fileTools.ts", "electron/tools/githubTools.ts"],
+    status: "implemented",
+    note: "set_workspace pins the project root; glob_files/grep_search discover files by name or content (build dirs skipped); read_file returns numbered lines with range support; index_files/recall add semantic retrieval on top.",
   },
   {
     id: "file-editing",
     capability: "File editing",
     mechanism: "Write/edit tools, diffs, checkpoints",
     enables: "Create, modify, refactor, or revert files safely.",
-    tools: [],
-    modules: ["electron/tools/dispatch.ts"],
-    status: "planned",
-    note: "No write_file/edit_file tools in this repo. The model edits files only indirectly, by committing via github_commit; there is no in-harness editor.",
+    tools: [
+      "write_file",
+      "edit_file",
+      "make_dir",
+      "move_path",
+      "copy_path",
+      "delete_path",
+      "list_file_changes",
+      "diff_file_change",
+      "undo_file_change",
+    ],
+    modules: ["electron/tools/fileTools.ts"],
+    status: "implemented",
+    note: "edit_file does exact-match targeted replacement and returns a unified diff; every mutation snapshots the previous content to a session checkpoint, so list_file_changes/diff_file_change/undo_file_change give real diff awareness and one-step recovery. Mutations are approval-gated and sensitive paths are refused.",
   },
   {
     id: "software-execution",
@@ -160,22 +171,22 @@ export const CAPABILITIES: readonly Capability[] = [
   {
     id: "app-creation",
     capability: "App creation",
-    mechanism: "File tools + terminal + preview/browser",
+    mechanism: "File tools + terminal + dev-server control + in-app browser",
     enables: "Build full apps, launch dev servers, verify UI, iterate on failures.",
-    tools: ["browser_navigate"],
-    modules: ["electron/llm-connection.ts"],
-    status: "planned",
-    note: "Requires file + exec tools that this browser-automation shell does not ship. Only the in-app browser is available for verifying a UI.",
+    tools: ["start_process", "process_output", "stop_process", "list_processes", "wait_for_server", "browser_navigate"],
+    modules: ["electron/tools/processTools.ts", "electron/tools/fileTools.ts", "electron/tools/execTools.ts"],
+    status: "implemented",
+    note: "End-to-end: scaffold via exec (npm create …), write/edit source with the file tools, install deps and run builds/tests via exec, start dev servers with start_process, gate on readiness with wait_for_server, verify the UI in the in-app browser, and read server logs with process_output. Background processes are killed on app quit.",
   },
   {
     id: "planning",
     capability: "Planning",
     mechanism: "Agentic loop, approval gates, task tracking",
     enables: "Explore before acting, break work into steps, execute with checkpoints.",
-    tools: [],
-    modules: ["electron/llm-connection.ts"],
+    tools: ["todo_write", "todo_update", "todo_read"],
+    modules: ["electron/tools/taskTools.ts", "electron/llm-connection.ts"],
     status: "implemented",
-    note: "The assistant run loop in llm-connection.ts drives a multi-round agentic loop with a no-progress stall guard, pause/resume/stop controls, and approval gating before side-effecting tools.",
+    note: "todo_write/todo_update/todo_read hold a session task list that survives across tool rounds, so multi-step work stays decomposed and tracked. The assistant run loop adds a no-progress stall guard, pause/resume/stop controls, and approval gating before side-effecting tools.",
   },
   {
     id: "document-creation",
@@ -366,12 +377,12 @@ export const CAPABILITIES: readonly Capability[] = [
   {
     id: "memory-context",
     capability: "Memory/context",
-    mechanism: "Project instruction files, summaries, persistent notes",
+    mechanism: "Project instruction files, summaries, persistent notes, semantic store",
     enables: "Remember project conventions, compress long sessions, preserve state.",
-    tools: [],
-    modules: ["electron/llm-connection.ts", "electron/attachments.ts"],
-    status: "partial",
-    note: "Persisted custom system prompt + a rolling history window + attachment context; no long-term vector/summary memory store yet.",
+    tools: ["remember", "recall", "memory_list", "memory_forget"],
+    modules: ["electron/tools/memoryTools.ts", "electron/llm-connection.ts", "electron/attachments.ts"],
+    status: "implemented",
+    note: "remember/recall persist notes across sessions with semantic retrieval (provider embeddings, lexical fallback), alongside the persisted custom system prompt, rolling history window, and attachment context.",
   },
   {
     id: "hooks-automation",
@@ -389,19 +400,24 @@ export const CAPABILITIES: readonly Capability[] = [
     mechanism: "Permissions, sandboxing, allow/deny rules",
     enables: "Limit what the agent can read, edit, run, browse, or automate.",
     tools: [],
-    modules: ["electron/tools/githubTools.ts", "electron/tools/types.ts"],
+    modules: ["electron/security/policy.ts", "electron/tools/githubTools.ts", "electron/tools/types.ts"],
     status: "implemented",
-    note: "Side-effecting GitHub tools (clone/commit/branch mutations/push/PR+issue writes/non-GET api) route through the harness approval gate (ctx.approve) and abort on denial; git/gh are spawned via argv only, with a flag-injection guard on positional values.",
+    note: "Every side-effecting tool (file writes/deletes, exec, process control, git commit/push, PR/issue writes) routes through the harness approval gate (ctx.approve) and aborts on denial; file tools refuse sensitive paths (~/.ssh, keychains, wallets) via security/policy.ts; git/gh are spawned via argv only, with a flag-injection guard; web_fetch has an SSRF guard.",
   },
   {
     id: "runtime-environments",
     capability: "Runtime environments",
     mechanism: "Local machine, remote server, cloud VM, container",
     enables: "Execute work in the right environment with the right dependencies.",
-    tools: ["exec", "run_python", "run_node", "python_session"],
-    modules: ["electron/tools/execTools.ts", "electron/tools/kernelTools.ts", "electron/tools/processRunner.ts"],
+    tools: ["exec", "run_python", "run_node", "python_session", "start_process", "wait_for_server"],
+    modules: [
+      "electron/tools/execTools.ts",
+      "electron/tools/kernelTools.ts",
+      "electron/tools/processTools.ts",
+      "electron/tools/processRunner.ts",
+    ],
     status: "partial",
-    note: "Runs on the local machine with a persistent Python kernel and shell/script execution. No remote/VM/container execution targets are built in.",
+    note: "Runs on the local machine with a persistent Python kernel, shell/script execution, and managed long-running background processes. No remote/VM/container execution targets are built in.",
   },
 ];
 
@@ -439,7 +455,7 @@ export function capabilityCounts(): Record<CapabilityStatus, number> {
 export function harnessSystemPromptLine(): string {
   return (
     "Architecture: you are the reasoning engine; Jobomate is your agent harness — " +
-    "the execution and capability layer (browser, git/GitHub, permissions, retrieval, runtime). " +
+    "the execution and capability layer (files, terminal, processes, browser, git/GitHub, permissions, retrieval, runtime). " +
     HARNESS_MODEL_SUMMARY +
     " Call describe_harness to see exactly which capabilities and tools you have."
   );

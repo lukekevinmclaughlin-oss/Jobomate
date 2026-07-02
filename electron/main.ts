@@ -9,6 +9,7 @@ import {
   stopLlmServer,
 } from "./llm-server";
 import { LlmConnectionManager } from "./llm-connection";
+import { shutdownAllProcesses } from "./tools/processTools";
 import { startEngine, stopEngine, ENGINE_PORT } from "./jobomate-engine";
 import {
   startReviewServer,
@@ -1332,5 +1333,6 @@ electron.app.on("will-quit", () => {
   stopReviewServer();
   removeBridgeAuthFile();
   stopEngine();
+  shutdownAllProcesses(); // background dev servers started by the harness
   electron.globalShortcut.unregisterAll();
 });

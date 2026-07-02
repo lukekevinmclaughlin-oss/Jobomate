@@ -18,6 +18,26 @@ describe("dispatch catalog", () => {
     }
   });
 
+  it("exposes the coding-harness core (files / processes / task state)", () => {
+    const names = extraToolDefinitions().map((t) => t.function.name);
+    for (const expected of [
+      "set_workspace", "get_workspace", "list_dir", "glob_files", "grep_search", "read_file",
+      "file_info", "write_file", "edit_file", "make_dir", "move_path", "copy_path", "delete_path",
+      "list_file_changes", "diff_file_change", "undo_file_change",
+      "start_process", "process_output", "stop_process", "list_processes", "wait_for_server",
+      "todo_write", "todo_update", "todo_read",
+    ]) {
+      expect(names, `missing ${expected}`).toContain(expected);
+      expect(hasExtraTool(expected)).toBe(true);
+    }
+  });
+
+  it("has no duplicate tool names across modules", () => {
+    const names = extraToolDefinitions().map((t) => t.function.name);
+    const dupes = names.filter((name, index) => names.indexOf(name) !== index);
+    expect(dupes).toEqual([]);
+  });
+
   it("hasExtraTool distinguishes extra tools from browser tools", () => {
     expect(hasExtraTool("describe_harness")).toBe(true);
     expect(hasExtraTool("github_pr")).toBe(true);
