@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { defineTool, type ToolContext, type ToolHandler, type ToolModule } from "./types";
+import { defaultShell } from "./processTools";
 
 /** Hard wall-clock limit for any spawned process. */
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -279,9 +280,8 @@ const execHandler: ToolHandler = async (args, ctx) => {
     return DENIED;
   }
 
-  const shell = process.platform === "win32" ? "cmd.exe" : "/bin/zsh";
-  const shellArgs = process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-lc", command];
-  const outcome = await runProcess(shell, shellArgs, { cwd, binDir: null, timeoutMs });
+  const { shell, args: shellArgsFor } = defaultShell();
+  const outcome = await runProcess(shell, shellArgsFor(command), { cwd, binDir: null, timeoutMs });
   return formatOutcome("command", outcome);
 };
 

@@ -1,10 +1,11 @@
 name: CI
 
+# Manual-only: pushes must not consume the account-level Actions budget.
+# The same gate runs locally before every push (npm run lint && npx tsc --noEmit
+# && npx tsc -p tsconfig.electron.json && npm test && npm run build); trigger
+# this workflow from the Actions tab when a cloud run is explicitly wanted.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:

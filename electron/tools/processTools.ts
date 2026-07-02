@@ -6,6 +6,7 @@
 // shutdownAllProcesses() on app quit so nothing leaks past the session.
 
 import * as childProcess from "node:child_process";
+import * as fs from "node:fs";
 import * as net from "node:net";
 import { defineTool, type ToolContext, type ToolHandler, type ToolModule } from "./types";
 import { firstString, resolveCwd, summarize } from "./processRunner";
@@ -34,6 +35,19 @@ interface ManagedProcess {
 const processes = new Map<number, ManagedProcess>();
 let nextId = 1;
 
+/** Pick a shell that actually exists on this machine (zsh is macOS-only). */
+export function defaultShell(): { shell: string; args: (command: string) => string[] } {
+  if (process.platform === "win32") {
+    return { shell: "cmd.exe", args: (command) => ["/d", "/s", "/c", command] };
+  }
+  for (const candidate of [process.env.SHELL, "/bin/zsh", "/bin/bash"]) {
+    if (candidate && fs.existsSync(candidate)) {
+      return { shell: candidate, args: (command) => ["-lc", command] };
+    }
+  }
+  return { shell: "/bin/sh", args: (command) => ["-c", command] };
+}
+
 function appendLog(proc: ManagedProcess, chunk: Buffer): void {
   proc.log.push(chunk);
   proc.logBytes += chunk.length;
@@ -59,18 +73,32 @@ function tail(text: string, maxChars: number): string {
   return `...[${text.length - maxChars} earlier chars trimmed]\n${text.slice(-maxChars)}`;
 }
 
+/**
+ * Signal a managed process AND its descendants. The command runs in its own
+ * process group (detached spawn), so a negative-pid kill reaches the whole
+ * tree — stopping "npm run dev" must also stop the node server it spawned,
+ * not orphan it holding the log pipes.
+ */
+function signalTree(proc: ManagedProcess, signal: NodeJS.Signals): void {
+  try {
+    if (process.platform !== "win32" && proc.child.pid) {
+      process.kill(-proc.child.pid, signal);
+    } else {
+      proc.child.kill(signal);
+    }
+  } catch {
+    // already gone
+  }
+}
+
 /** Kill every still-running managed process. Wired to Electron's will-quit. */
 export function shutdownAllProcesses(): void {
   for (const proc of processes.values()) {
     if (!proc.exited) {
-      try {
-        proc.child.kill("SIGTERM");
-        setTimeout(() => {
-          if (!proc.exited) proc.child.kill("SIGKILL");
-        }, 2000).unref?.();
-      } catch {
-        // already gone
-      }
+      signalTree(proc, "SIGTERM");
+      setTimeout(() => {
+        if (!proc.exited) signalTree(proc, "SIGKILL");
+      }, 2000).unref?.();
     }
   }
 }
@@ -100,11 +128,15 @@ const startProcessHandler: ToolHandler = async (args, ctx: ToolContext) => {
     return DENIED;
   }
 
-  const shell = process.platform === "win32" ? "cmd.exe" : "/bin/zsh";
-  const shellArgs = process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-lc", command];
+  const { shell, args: shellArgsFor } = defaultShell();
   let child: childProcess.ChildProcess;
   try {
-    child = childProcess.spawn(shell, shellArgs, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    child = childProcess.spawn(shell, shellArgsFor(command), {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      // Own process group so stop_process can signal the whole tree.
+      detached: process.platform !== "win32",
+    });
   } catch (error) {
     return `Failed to start: ${(error as Error).message}`;
   }
@@ -127,11 +159,15 @@ const startProcessHandler: ToolHandler = async (args, ctx: ToolContext) => {
   child.stdout?.on("data", (chunk: Buffer) => appendLog(proc, chunk));
   child.stderr?.on("data", (chunk: Buffer) => appendLog(proc, chunk));
   child.on("error", (error) => appendLog(proc, Buffer.from(`\n[spawn error] ${error.message}\n`)));
-  child.on("close", (code, signal) => {
+  // "exit" fires when the process terminates even if an orphaned grandchild
+  // still holds the stdio pipes ("close" would wait for those).
+  const markExited = (code: number | null, signal: NodeJS.Signals | null): void => {
     proc.exited = true;
-    proc.exitCode = code;
-    proc.exitSignal = signal;
-  });
+    if (proc.exitCode === null) proc.exitCode = code;
+    if (proc.exitSignal === null) proc.exitSignal = signal;
+  };
+  child.on("exit", markExited);
+  child.on("close", markExited);
 
   // Give fast-failing commands a moment so the model sees the crash immediately
   // instead of a false "started".
@@ -163,16 +199,12 @@ const stopProcessHandler: ToolHandler = async (args, ctx) => {
   if (!(await ctx.approve({ tool: "stop_process", summary: `Stop background process #${id} "${proc.name}"` }))) {
     return DENIED;
   }
-  try {
-    proc.child.kill("SIGTERM");
-    // Escalate if it ignores SIGTERM.
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    if (!proc.exited) {
-      proc.child.kill("SIGKILL");
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
-  } catch {
-    // already gone
+  signalTree(proc, "SIGTERM");
+  // Escalate if it ignores SIGTERM.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  if (!proc.exited) {
+    signalTree(proc, "SIGKILL");
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return proc.exited
     ? `Stopped process #${id} "${proc.name}" (code ${proc.exitCode ?? "killed"}).`
